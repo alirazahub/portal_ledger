@@ -204,3 +204,11 @@ td > small { display: block; margin-top: 2px; color: #9aa49f; font-size: 8px; }
 .audit-row time { white-space: nowrap; }
 .audit-more { display: flex; justify-content: center; padding: 18px; border-top: 1px solid var(--line, #e8ece9); }
 @media (max-width: 640px) { .audit-row { grid-template-columns: 34px minmax(0, 1fr); gap: 10px; } .audit-row time { grid-column: 2; } }
+
+.evidence-box { margin: 18px 0 6px; padding: 14px; border: 1px solid #e7ece9; border-radius: 12px; }
+.evidence-box .panel-header { padding: 0 0 10px; border: 0; }
+.file-pick { cursor: pointer; }
+.evidence-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid #edf0ee; font-size: 12px; }
+.evidence-row .text-link { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
+.evidence-row small { margin-left: auto; color: #78827d; white-space: nowrap; }
+@media (max-width: 700px) { .team-invite-form { grid-template-columns: 1fr; } .evidence-row { flex-wrap: wrap; } }

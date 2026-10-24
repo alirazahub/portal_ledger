@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-const money = (value) => new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(Number(value) || 0);
+const money = (value, currency = "EUR") => new Intl.NumberFormat("en-IE", { style: "currency", currency, maximumFractionDigits: 2 }).format(Number(value) || 0);
+const moneyByCurrency = (items) => {
+  const totals = items.reduce((all, item) => { const c = item.currency || "EUR"; all[c] = (all[c] || 0) + Number(item.amount || 0); return all; }, {});
+  return Object.entries(totals).map(([c, total]) => money(total, c)).join(" · ") || money(0);
+};
+const currencies = ["EUR", "USD", "GBP", "CHF", "CAD"];
 const dateLabel = (value) => value ? new Date(value + "T12:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 const dayDelta = (value) => {
   if (!value) return 0;
@@ -10,7 +15,7 @@ const dayDelta = (value) => {
   return Math.round((date - today) / 86400000);
 };
 const initials = (value = "") => value.split(/\s+/).slice(0, 2).map((part) => part[0] || "").join("").toUpperCase();
-const effectiveStatus = (invoice) => invoice.status !== "Paid" && invoice.status !== "Draft" && dayDelta(invoice.due) < 0 ? "Overdue" : invoice.status;
+const effectiveStatus = (invoice) => invoice.status !== "Paid" && invoice.status !== "Draft" && !["Rejected", "Needs info"].includes(invoice.status) && dayDelta(invoice.due) < 0 ? "Overdue" : invoice.status;
 
 async function request(path, options = {}) {
   const response = await fetch("/api" + path, {
@@ -200,11 +205,56 @@ function AuditLog() {
   </section>;
 }
 
+function EntityManager() {
+  const [entities, setEntities] = useState([]), [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  async function refresh() { try { setEntities(await request("/entities")); setError(""); } catch (err) { setError(err.message); } }
+  useEffect(() => { refresh(); }, []);
+  async function add(event) {
+    event.preventDefault(); setBusy(true); setError(""); const form = event.currentTarget;
+    try { await request("/entities", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); form.reset(); await refresh(); }
+    catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+  return <div className="team-layout">{error && <div className="error-banner" role="alert">{error}</div>}
+    <section className="panel team-panel"><div className="panel-header"><div><b>Add legal entity</b><small>Separate invoices by company and base currency.</small></div></div>
+      <form className="team-invite-form" onSubmit={add}><label className="field"><span>Entity name</span><input name="name" minLength="2" maxLength="120" required placeholder="Company SAS" /></label>
+      <label className="field"><span>Country</span><input name="country" maxLength="80" placeholder="France" /></label>
+      <label className="field"><span>Base currency</span><select name="currency">{currencies.map(c => <option key={c}>{c}</option>)}</select></label>
+      <button className="button primary" disabled={busy}>{busy ? "Saving…" : "Add entity"}</button></form>
+    </section><section className="panel team-panel"><div className="panel-header"><div><b>Legal entities</b><small>Invoices retain their recorded currency.</small></div></div>
+      <div className="team-list">{entities.map(e => <div className="team-row" key={e._id}><span className="portal-icon">{e.isDefault ? "★" : "◇"}</span><span className="team-person"><b>{e.name}</b><small>{e.country || "Country not set"} · {e.currency}{e.isDefault ? " · default" : ""}</small></span></div>)}</div></section>
+  </div>;
+}
+
+function InvoiceEvidence({ invoice, canWrite }) {
+  const [files, setFiles] = useState([]), [error, setError] = useState(""), [busy, setBusy] = useState(false);
+  async function refresh() { try { setFiles(await request("/invoices/" + invoice._id + "/evidence")); } catch (err) { setError(err.message); } }
+  useEffect(() => { refresh(); }, [invoice._id]);
+  async function upload(event) {
+    const file = event.target.files?.[0]; if (!file) return;
+    if (file.size > 1200000) { setError("Choose a file smaller than 1.2 MB."); event.target.value = ""; return; }
+    setBusy(true); setError("");
+    try {
+      const data = await new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(String(r.result).split(",")[1]); r.onerror = fail; r.readAsDataURL(file); });
+      await request("/invoices/" + invoice._id + "/evidence", { method: "POST", body: JSON.stringify({ name: file.name, mimeType: file.type, data }) }); await refresh();
+    } catch (err) { setError(err.message); } finally { setBusy(false); event.target.value = ""; }
+  }
+  async function download(file) {
+    try { const r = await fetch("/api/invoices/" + invoice._id + "/evidence/" + file._id); if (!r.ok) throw Error("Download failed.");
+      const url = URL.createObjectURL(await r.blob()), link = document.createElement("a"); link.href = url; link.download = file.name; link.click(); URL.revokeObjectURL(url);
+    } catch (err) { setError(err.message); }
+  }
+  async function remove(file) { try { await request("/invoices/" + invoice._id + "/evidence/" + file._id, { method: "DELETE" }); await refresh(); } catch (err) { setError(err.message); } }
+  return <section className="evidence-box"><div className="panel-header"><div><b>Invoice evidence</b><small>PDF, PNG, or JPEG · max 1.2 MB each</small></div>{canWrite && <label className="button file-pick">{busy ? "Uploading…" : "＋ Attach file"}<input type="file" accept="application/pdf,image/png,image/jpeg" onChange={upload} disabled={busy} hidden /></label>}</div>
+    {error && <div className="error-banner" role="alert">{error}</div>}{!files.length ? <Empty text="No proof or invoice file attached." /> : files.map(file => <div className="evidence-row" key={file._id}><span>▧</span><button className="text-link" onClick={() => download(file)}>{file.name}</button><small>{Math.ceil(file.size/1024)} KB</small>{canWrite && <button className="button danger-quiet" onClick={() => remove(file)}>Remove</button>}</div>)}
+  </section>;
+}
+
 function WorkspaceApp({ user, onLogout }) {
   const [page, setPage] = useState("overview");
   const [invoices, setInvoices] = useState([]);
   const [portals, setPortals] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [entities, setEntities] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -219,12 +269,10 @@ function WorkspaceApp({ user, onLogout }) {
     setLoading(true);
     setError("");
     try {
-      const [invoiceRows, portalRows, documentRows] = await Promise.all([
-        request("/invoices"), request("/portals"), request("/documents"),
+      const [invoiceRows, portalRows, documentRows, entityRows] = await Promise.all([
+        request("/invoices"), request("/portals"), request("/documents"), request("/entities"),
       ]);
-      setInvoices(invoiceRows);
-      setPortals(portalRows);
-      setDocuments(documentRows);
+      setInvoices(invoiceRows); setPortals(portalRows); setDocuments(documentRows); setEntities(entityRows);
     } catch (err) {
       setError(err.message + " Make sure MongoDB and the API server are running.");
     } finally {
@@ -252,17 +300,30 @@ function WorkspaceApp({ user, onLogout }) {
   const openInvoices = invoices.filter((item) => item.status !== "Paid");
   const overdueInvoices = openInvoices.filter((item) => effectiveStatus(item) === "Overdue");
   const dueSoon = openInvoices.filter((item) => dayDelta(item.due) >= 0 && dayDelta(item.due) <= 7);
-  const outstanding = openInvoices.reduce((sum, item) => sum + Number(item.amount), 0);
-  const dueSoonTotal = dueSoon.reduce((sum, item) => sum + Number(item.amount), 0);
-  const overdueTotal = overdueInvoices.reduce((sum, item) => sum + Number(item.amount), 0);
+  const outstanding = moneyByCurrency(openInvoices);
+  const dueSoonTotal = moneyByCurrency(dueSoon);
+  const overdueTotal = moneyByCurrency(overdueInvoices);
 
   function notify(message) { setToast(message); }
   function navigate(target) { setPage(target); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function updateIssue(invoice, status) {
+    const reason = window.prompt(status === "Rejected" ? "Why was this invoice rejected?" : "What information is missing?", invoice.rejectionReason || "");
+    if (reason === null) return;
+    const followUpAt = window.prompt("Follow-up date (YYYY-MM-DD)", invoice.followUpAt || "");
+    if (followUpAt === null) return;
+    request("/invoices/" + invoice._id, { method: "PATCH", body: JSON.stringify({ status, rejectionReason: reason, followUpAt }) })
+      .then(async () => { setSelected(null); await refresh(); notify("Invoice added to the issue queue"); }).catch(err => setError(err.message));
+  }
+  async function resolveIssue(invoice) {
+    try { await request("/invoices/" + invoice._id, { method: "PATCH", body: JSON.stringify({ status: "Submitted", rejectionReason: "", followUpAt: "" }) }); setSelected(null); await refresh(); notify("Invoice returned to submitted"); }
+    catch (err) { setError(err.message); }
+  }
   async function saveInvoice(event) {
     event.preventDefault(); setSaving(true);
     const form = new FormData(event.currentTarget);
     const payload = Object.fromEntries(form.entries());
     payload.amount = Number(payload.amount);
+    payload.currency ||= entities.find(entity => entity._id === payload.entityId)?.currency || "EUR";
     try {
       await request("/invoices", { method: "POST", body: JSON.stringify(payload) });
       setModal(""); await refresh(); navigate("invoices"); notify("Invoice added");
@@ -311,13 +372,14 @@ function WorkspaceApp({ user, onLogout }) {
     } catch (err) { setError(err.message); } finally { setSaving(false); }
   }
   function exportCsv() {
-    const rows = [["Invoice", "Customer", "Portal", "Status", "Submitted", "Due", "Amount EUR", "Reference", "Note"],
-      ...invoices.map((i) => [i.number, i.client, i.portal, effectiveStatus(i), i.submitted, i.due, i.amount, i.reference, i.note])];
+    const entityNames = Object.fromEntries(entities.map(e => [e._id, e.name]));
+    const rows = [["Invoice", "Legal entity", "Currency", "Customer", "Portal", "Status", "Submitted", "Due", "Expected payment", "Amount", "Reference", "Note"],
+      ...invoices.map(i => [i.number, entityNames[i.entityId] || "Primary entity", i.currency || "EUR", i.client, i.portal, effectiveStatus(i), i.submitted, i.due, i.expectedPaymentDate || "", i.amount, i.reference, i.note])];
     const csv = rows.map((row) => row.map((value) => '"' + String(value ?? "").replace(/"/g, '""') + '"').join(",")).join("\r\n");
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    link.download = "portal-ledger-invoices.csv"; link.click(); URL.revokeObjectURL(link.href);
-    notify("Invoice report exported");
+    link.download = "portal-ledger-accounting-export.csv"; link.click(); URL.revokeObjectURL(link.href);
+    notify("Accounting-ready CSV exported");
   }
 
   const portalNames = [...new Set([...portals.map((p) => p.name), ...invoices.map((i) => i.portal)])];
@@ -329,7 +391,7 @@ function WorkspaceApp({ user, onLogout }) {
       <div className="brand"><span className="brand-mark">P</span><span><b>Portal Ledger</b><small>Supplier workspace</small></span></div>
       <p className="nav-label">Workspace</p>
       <nav className="nav-list" aria-label="Workspace">
-        {[["overview", "◫", "Overview"], ["invoices", "▤", "Invoices"], ["portals", "↗", "Customer portals"], ["documents", "▧", "Documents"], ...(user.role === "owner" || user.role === "admin" ? [["team", "♙", "Team"], ["activity", "↻", "Activity log"]] : [])].map(([id, icon, label]) =>
+        {[["overview", "◫", "Overview"], ["invoices", "▤", "Invoices"], ["portals", "↗", "Customer portals"], ["documents", "▧", "Documents"], ...(user.role === "owner" || user.role === "admin" ? [["team", "♙", "Team"], ["entities", "◈", "Entities"], ["activity", "↻", "Activity log"]] : [])].map(([id, icon, label]) =>
           <button key={id} className={page === id ? "nav-item active" : "nav-item"} onClick={() => navigate(id)}>
             <span className="nav-icon">{icon}</span><span>{label}</span>{id === "invoices" && <span className="nav-count">{openInvoices.length}</span>}
           </button>)}
@@ -338,7 +400,7 @@ function WorkspaceApp({ user, onLogout }) {
     </aside>
 
     <main className="main">
-      <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <b>{page === "overview" ? "Overview" : page === "invoices" ? "Invoices" : page === "portals" ? "Customer portals" : page === "documents" ? "Documents" : page === "activity" ? "Activity log" : "Team"}</b></div>
+      <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <b>{page === "overview" ? "Overview" : page === "invoices" ? "Invoices" : page === "portals" ? "Customer portals" : page === "documents" ? "Documents" : page === "activity" ? "Activity log" : page === "entities" ? "Entities" : "Team"}</b></div>
         <div className="top-actions"><button className="button" onClick={() => setModal("security")}>Password</button><button className="button" onClick={onLogout}>Sign out</button><button className="button" onClick={exportCsv}>↓ Export</button>{canWrite && <button className="button primary" onClick={() => setModal("invoice")}>＋ New invoice</button>}</div>
       </header>
       <div className="content">
@@ -347,16 +409,16 @@ function WorkspaceApp({ user, onLogout }) {
         {!loading && page === "overview" && <section>
           <div className="page-head"><div><div className="eyebrow">{today}</div><h1>Welcome, {user.name.split(" ")[0]}</h1><p>Here’s what needs attention across your customer portals.</p></div><div className="head-buttons"><button className="button" onClick={exportCsv}>↓ Export report</button>{canWrite && <button className="button primary" onClick={() => setModal("invoice")}>＋ Add invoice</button>}</div></div>
           <div className="stats-grid">
-            <Stat label="Outstanding" value={money(outstanding)} foot="Across open invoices" icon="€" tone="green" />
-            <Stat label="Due this week" value={money(dueSoonTotal)} foot="Next seven days" icon="◷" tone="amber" />
-            <Stat label="Overdue" value={money(overdueTotal)} foot={overdueInvoices.length + " invoices need attention"} icon="!" tone="red" />
+            <Stat label="Outstanding" value={outstanding} foot="Grouped by currency" icon="€" tone="green" />
+            <Stat label="Due this week" value={dueSoonTotal} foot="Next 7 days · grouped by currency" icon="◷" tone="amber" />
+            <Stat label="Overdue" value={overdueTotal} foot={overdueInvoices.length + " invoices · grouped by currency"} icon="!" tone="red" />
             <Stat label="Open invoices" value={openInvoices.length} foot={invoices.length - openInvoices.length + " paid this period"} icon="▤" tone="blue" />
           </div>
           <div className="dashboard-grid">
             <InvoicePanel invoices={filteredInvoices.slice(0, 6)} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onSelect={setSelected} />
             <div className="side-stack">
               <section className="panel side-panel"><div className="side-heading"><b>Portal activity</b><button className="text-link" onClick={() => navigate("portals")}>View all</button></div>
-                {portalNames.slice(0, 4).map((name, index) => { const rows = invoices.filter((i) => i.portal === name && i.status !== "Paid"); return <div className="portal-row" key={name}><span className={"portal-icon tone-" + (index % 4)}>{initials(name)}</span><span className="portal-info"><b>{name}</b><small>{rows.length} open invoice{rows.length === 1 ? "" : "s"}</small></span><strong>{money(rows.reduce((sum, i) => sum + Number(i.amount), 0))}</strong></div>; })}
+                {portalNames.slice(0, 4).map((name, index) => { const rows = invoices.filter((i) => i.portal === name && i.status !== "Paid"); return <div className="portal-row" key={name}><span className={"portal-icon tone-" + (index % 4)}>{initials(name)}</span><span className="portal-info"><b>{name}</b><small>{rows.length} open invoice{rows.length === 1 ? "" : "s"}</small></span><strong>{moneyByCurrency(rows)}</strong></div>; })}
                 {!portalNames.length && <Empty text="No portals tracked yet." />}
               </section>
               <section className="panel side-panel"><div className="side-heading"><b>Next follow-ups</b><button className="text-link" onClick={() => navigate("invoices")}>View queue</button></div>
@@ -386,6 +448,7 @@ function WorkspaceApp({ user, onLogout }) {
 
         {!loading && page === "team" && <section><div className="page-head"><div><div className="eyebrow">Workspace access</div><h1>Team</h1><p>Invite people and assign access by role.</p></div></div><TeamManager user={user} /></section>}
         {!loading && page === "activity" && <section><div className="page-head"><div><div className="eyebrow">Workspace security</div><h1>Activity log</h1><p>Review who changed records and team access.</p></div></div><AuditLog /></section>}
+        {!loading && page === "entities" && <section><div className="page-head"><div><div className="eyebrow">Company structure</div><h1>Entities & currencies</h1><p>Keep records separate by legal company and original invoice currency.</p></div></div><EntityManager /></section>}
 
         {!loading && page === "documents" && <section>
           <div className="page-head"><div><div className="eyebrow">Shared paperwork</div><h1>Documents</h1><p>Track renewal dates for documents customers may request.</p></div><div className="head-buttons">{canWrite && <button className="button primary" onClick={() => setModal("document")}>＋ Add document</button>}</div></div>
@@ -400,7 +463,9 @@ function WorkspaceApp({ user, onLogout }) {
     {modal === "invoice" && <Modal title="Add invoice" description="Record the customer portal and payment dates." onClose={() => setModal("")}>
       <form className="form-grid" onSubmit={saveInvoice}>
         <Field label="Invoice number"><input name="number" required maxLength="80" placeholder="INV-2026-014" /></Field>
-        <Field label="Amount (€)"><input name="amount" type="number" min="0.01" step="0.01" required placeholder="2400" /></Field>
+        <Field label="Amount"><input name="amount" type="number" min="0.01" step="0.01" required placeholder="2400" /></Field>
+        <Field label="Currency"><select name="currency" defaultValue={entities[0]?.currency || "EUR"}>{currencies.map(c => <option key={c}>{c}</option>)}</select></Field>
+        <Field label="Legal entity"><select name="entityId" defaultValue={entities[0]?._id || ""} required>{entities.map(e => <option key={e._id} value={e._id}>{e.name} · {e.currency}</option>)}</select></Field>
         <Field label="Customer"><input name="client" required maxLength="160" placeholder="Customer company" /></Field>
         <Field label="Portal"><input name="portal" list="portal-options" required maxLength="120" placeholder="Customer portal" /><datalist id="portal-options">{portalNames.map((name) => <option key={name} value={name} />)}</datalist></Field>
         <Field label="Submitted date"><input name="submitted" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></Field>
@@ -412,16 +477,20 @@ function WorkspaceApp({ user, onLogout }) {
       </form>
     </Modal>}
     {modal === "portal" && <Modal title="Add portal shortcut" description="Save a URL for quick access. Portal passwords aren’t stored." onClose={() => setModal("")}>
-      <form className="form-grid" onSubmit={savePortal}><Field label="Portal / customer name"><input name="name" required maxLength="160" placeholder="Customer portal" /></Field><Field label="Portal URL"><input name="url" type="url" pattern="https?://.+" required placeholder="https://portal.example.com" /></Field><div className="modal-actions form-full"><button type="button" className="button" onClick={() => setModal("")}>Cancel</button><button className="button primary" disabled={saving}>{saving ? "Saving…" : "Save portal"}</button></div></form>
+      <form className="form-grid" onSubmit={savePortal}><Field label="Portal / customer name"><input name="name" required maxLength="160" placeholder="Customer portal" /></Field><Field label="Portal URL"><input name="url" type="url" pattern="https?://.+" required placeholder="https://portal.example.com" /></Field>
+        <Field label="Typical payment terms (days)"><input name="paymentTermsDays" type="number" min="0" max="365" defaultValue="30" /></Field>
+        <Field label="Submission requirements" full><textarea name="requirements" maxLength="2000" placeholder="PO number, timesheet, service period, required attachment…" /></Field><div className="modal-actions form-full"><button type="button" className="button" onClick={() => setModal("")}>Cancel</button><button className="button primary" disabled={saving}>{saving ? "Saving…" : "Save portal"}</button></div></form>
     </Modal>}
     {modal === "document" && <Modal title="Add document reminder" description="Track the document name and renewal date. This MVP doesn’t upload files." onClose={() => setModal("")}>
       <form className="form-grid" onSubmit={saveDocument}><Field label="Document name"><input name="name" required maxLength="160" placeholder="Insurance certificate" /></Field><Field label="Renewal date"><input name="expiresAt" type="date" required /></Field><Field label="Category" full><select name="category"><option>Insurance</option><option>Registration</option><option>Tax document</option><option>Safety certificate</option><option>Other</option></select></Field><div className="modal-actions form-full"><button type="button" className="button" onClick={() => setModal("")}>Cancel</button><button className="button primary" disabled={saving}>{saving ? "Saving…" : "Save reminder"}</button></div></form>
     </Modal>}
     {selected && <Modal title={selected.number} description={selected.client + " · " + effectiveStatus(selected)} onClose={() => setSelected(null)}>
-      <div className="detail-amount">{money(selected.amount)}</div><div className="detail-grid">
-        <Detail label="Customer portal" value={selected.portal} /><Detail label="Portal reference" value={selected.reference || "Not recorded"} /><Detail label="Submitted" value={dateLabel(selected.submitted)} /><Detail label="Due date" value={dateLabel(selected.due)} />
+      <div className="detail-amount">{money(selected.amount, selected.currency || "EUR")}</div><div className="detail-grid">
+        <Detail label="Customer portal" value={selected.portal} /><Detail label="Legal entity" value={entities.find(e => e._id === selected.entityId)?.name || "Primary entity"} /><Detail label="Portal reference" value={selected.reference || "Not recorded"} /><Detail label="Submitted" value={dateLabel(selected.submitted)} /><Detail label="Due date" value={dateLabel(selected.due)} />
       </div><div className="detail-note"><b>Latest note</b><p>{selected.note || "No note recorded."}</p></div>
-      {canWrite && <div className="modal-actions"><button className="button" onClick={() => editNote(selected)}>＋ Add note</button>{selected.status !== "Paid" && <button className="button primary" onClick={() => markPaid(selected)}>✓ Mark paid</button>}</div>}
+      {(selected.status === "Rejected" || selected.status === "Needs info") && <div className="error-banner"><span><b>{selected.status}:</b> {selected.rejectionReason || "No reason recorded."}{selected.followUpAt ? " · Follow up " + dateLabel(selected.followUpAt) : ""}</span></div>}
+      <InvoiceEvidence invoice={selected} canWrite={canWrite} />
+      {canWrite && <div className="modal-actions"><button className="button" onClick={() => editNote(selected)}>＋ Add note</button>{!["Paid", "Rejected", "Needs info"].includes(selected.status) && <><button className="button" onClick={() => updateIssue(selected, "Needs info")}>Flag missing info</button><button className="button danger-quiet" onClick={() => updateIssue(selected, "Rejected")}>Mark rejected</button></>}{["Rejected", "Needs info"].includes(selected.status) && <button className="button primary" onClick={() => resolveIssue(selected)}>✓ Resubmit</button>}{selected.status !== "Paid" && <button className="button primary" onClick={() => markPaid(selected)}>✓ Mark paid</button>}</div>}
     </Modal>}
     {toast && <div className="toast" role="status">{toast}</div>}
   </div>;
@@ -436,8 +505,8 @@ function Followup({ invoice, onClick }) {
   return <button className="followup-row" onClick={onClick}><span className={"followup-icon " + (late ? "late" : "")}>{late ? "!" : "↗"}</span><span><b>{late ? "Follow up: " : "Check status: "}{invoice.client}</b><small>{invoice.number} · {money(invoice.amount)} · {late ? Math.abs(dayDelta(invoice.due)) + " days overdue" : "Due " + dateLabel(invoice.due)}</small></span></button>;
 }
 function InvoicePanel({ invoices, query, setQuery, statusFilter, setStatusFilter, onSelect, caption }) {
-  return <section className="panel"><div className="panel-header"><div><b>Invoice activity</b><small>{caption || "Submissions, approvals, and payment status"}</small></div><div className="filter-row"><input aria-label="Search invoices" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search invoices" /><select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option>Submitted</option><option>Approved</option><option>Processing</option><option>Draft</option><option>Paid</option><option>Overdue</option></select></div></div>
-    {!invoices.length ? <Empty text="No invoices match. Add an invoice to start tracking." /> : <div className="table-scroll"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Portal</th><th>Status</th><th>Due date</th><th>Amount</th></tr></thead><tbody>{invoices.map((invoice) => { const status = effectiveStatus(invoice); const delta = dayDelta(invoice.due); return <tr key={invoice._id} onClick={() => onSelect(invoice)}><td><b>{invoice.number}</b><small>{invoice.reference || "No portal reference"}</small></td><td><div className="customer-cell"><span className="client-initials">{initials(invoice.client)}</span><span><b>{invoice.client}</b><small>Submitted {dateLabel(invoice.submitted)}</small></span></div></td><td><span className="portal-dot" />{invoice.portal}</td><td><span className={"status " + status.toLowerCase()}>{status}</span></td><td className={status === "Overdue" ? "text-red" : delta >= 0 && delta <= 7 && status !== "Paid" ? "text-amber" : ""}>{invoice.status === "Paid" ? "Paid" : status === "Overdue" ? Math.abs(delta) + "d overdue" : delta === 0 ? "Due today" : dateLabel(invoice.due)}</td><td className="amount-cell">{money(invoice.amount)}</td></tr>; })}</tbody></table></div>}
+  return <section className="panel"><div className="panel-header"><div><b>Invoice activity</b><small>{caption || "Submissions, approvals, and payment status"}</small></div><div className="filter-row"><input aria-label="Search invoices" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search invoices" /><select aria-label="Filter by status" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}><option value="all">All statuses</option><option>Submitted</option><option>Needs info</option><option>Rejected</option><option>Approved</option><option>Processing</option><option>Draft</option><option>Paid</option><option>Overdue</option></select></div></div>
+    {!invoices.length ? <Empty text="No invoices match. Add an invoice to start tracking." /> : <div className="table-scroll"><table><thead><tr><th>Invoice</th><th>Customer</th><th>Portal</th><th>Status</th><th>Due date</th><th>Amount</th></tr></thead><tbody>{invoices.map((invoice) => { const status = effectiveStatus(invoice); const delta = dayDelta(invoice.due); return <tr key={invoice._id} onClick={() => onSelect(invoice)}><td><b>{invoice.number}</b><small>{invoice.reference || "No portal reference"}</small></td><td><div className="customer-cell"><span className="client-initials">{initials(invoice.client)}</span><span><b>{invoice.client}</b><small>Submitted {dateLabel(invoice.submitted)}</small></span></div></td><td><span className="portal-dot" />{invoice.portal}</td><td><span className={"status " + status.toLowerCase()}>{status}</span></td><td className={status === "Overdue" ? "text-red" : delta >= 0 && delta <= 7 && status !== "Paid" ? "text-amber" : ""}>{invoice.status === "Paid" ? "Paid" : status === "Overdue" ? Math.abs(delta) + "d overdue" : delta === 0 ? "Due today" : dateLabel(invoice.due)}</td><td className="amount-cell">{money(invoice.amount, invoice.currency || "EUR")}</td></tr>; })}</tbody></table></div>}
     <footer className="table-footer"><span>Showing <b>{invoices.length}</b> records</span><span>Click a row to view details</span></footer>
   </section>;
 }
