@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon src/index.js",
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "seed:demo": "node scripts/seed-demo.js",
+    "test:rbac": "node scripts/test-rbac.js"
   },
   "dependencies": {
     "cors": "^2.8.5",

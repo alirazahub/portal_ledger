@@ -30,6 +30,29 @@ Portal Ledger helps a supplier team track customer-portal invoice submissions, d
 - **Viewer:** read and export records.
 - Password changes revoke the account's other active sessions.
 
+## Isolated demo data and RBAC checks
+
+Use a separate MongoDB database whose name ends in `_demo` (for example, `portal_ledger_demo`). Never point the demo scripts at Production. Put that URI in `server/.env`, then run from the repository root:
+
+```powershell
+$env:DEMO_SEED_CONFIRM = "YES"
+$env:DEMO_SEED_RESET = "YES"
+npm run seed:demo
+```
+
+The seed refuses `NODE_ENV=production`, requires both confirmations, and only replaces the named demo workspace in a database ending in `_demo`. It creates 4 role accounts, 56 invoices across all statuses, 3 legal entities and currencies, 8 customer portals, 15 expiring documents, 6 synthetic PDF evidence files, 64 audit events, and a pending invitation.
+
+All four accounts use the demo-only password `PortalDemo-2026-Access!`: `owner@portal-ledger.test`, `admin@portal-ledger.test`, `accountant@portal-ledger.test`, and `viewer@portal-ledger.test`. Change these credentials before sharing a demo environment.
+
+With the API running against that same demo database, run:
+
+```powershell
+$env:DEMO_TEST_CONFIRM = "YES"
+npm run test:rbac
+```
+
+The RBAC smoke test signs into each role and checks identity, read access, audit/team restrictions, and invoice creation permissions. The test only permits a database ending in `_demo`; smoke-created invoices are deleted after each check.
+
 ## Vercel deployment
 
 The project is configured to build the Vite client and expose the Express API as a Vercel function. Set these environment variables for Production and Preview:
