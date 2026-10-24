@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const money = (value, currency = "EUR") => new Intl.NumberFormat("en-IE", { style: "currency", currency, maximumFractionDigits: 2 }).format(Number(value) || 0);
 const moneyByCurrency = (items) => {
@@ -39,6 +39,15 @@ function Modal({ title, description, onClose, children }) {
   </div>;
 }
 
+
+const workspacePages = new Set(["overview", "invoices", "portals", "documents", "team", "entities", "activity"]);
+function getWorkspacePage(user) {
+  const requested = window.location.hash.startsWith("#/") ? window.location.hash.slice(2).split("/")[0] : "";
+  if (!workspacePages.has(requested)) return "overview";
+  if (["team", "entities", "activity"].includes(requested) && !["owner", "admin"].includes(user?.role)) return "overview";
+  return requested;
+}
+const workspacePageTitles = { overview: "Overview", invoices: "Invoices", portals: "Customer portals", documents: "Documents", team: "Team", entities: "Entities", activity: "Activity log" };
 
 function App() {
   const [user, setUser] = useState(null);
@@ -252,7 +261,8 @@ function InvoiceEvidence({ invoice, canWrite }) {
 }
 
 function WorkspaceApp({ user, onLogout }) {
-  const [page, setPage] = useState("overview");
+  const [page, setPage] = useState(() => getWorkspacePage(user));
+  const mainRef = useRef(null);
   const [invoices, setInvoices] = useState([]);
   const [portals, setPortals] = useState([]);
   const [documents, setDocuments] = useState([]);
@@ -284,6 +294,11 @@ function WorkspaceApp({ user, onLogout }) {
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {
+    const handleRoute = () => { setPage(getWorkspacePage(user)); if (window.matchMedia("(max-width: 600px)").matches) window.scrollTo({ top: 0 }); else if (mainRef.current) mainRef.current.scrollTo({ top: 0 }); };
+    window.addEventListener("hashchange", handleRoute);
+    return () => window.removeEventListener("hashchange", handleRoute);
+  }, [user]);
+  useEffect(() => {
     if (!toast) return undefined;
     const timer = window.setTimeout(() => setToast(""), 2600);
     return () => window.clearTimeout(timer);
@@ -307,7 +322,12 @@ function WorkspaceApp({ user, onLogout }) {
   const overdueTotal = moneyByCurrency(overdueInvoices);
 
   function notify(message) { setToast(message); }
-  function navigate(target) { setPage(target); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  function navigate(target) {
+    const allowed = workspacePages.has(target) && (!["team", "entities", "activity"].includes(target) || ["owner", "admin"].includes(user.role));
+    const next = allowed ? target : "overview";
+    if (window.location.hash === "#/" + next) { setPage(next); (window.matchMedia("(max-width: 600px)").matches ? window : mainRef.current)?.scrollTo({ top: 0, behavior: "smooth" }); }
+    else window.location.hash = "/" + next;
+  }
   function updateIssue(invoice, status) {
     const reason = window.prompt(status === "Rejected" ? "Why was this invoice rejected?" : "What information is missing?", invoice.rejectionReason || "");
     if (reason === null) return;
@@ -345,11 +365,39 @@ function WorkspaceApp({ user, onLogout }) {
   async function saveDocument(event) {
     event.preventDefault(); setSaving(true);
     const form = new FormData(event.currentTarget);
-    const payload = Object.fromEntries(form.entries());
+    const payload = Object.fromEntries([...form.entries()].filter(([key]) => key !== "file"));
+    const file = form.get("file");
     try {
+      if (file instanceof File && file.size) {
+        if (file.size > 1200000) throw new Error("Documents must be 1.2 MB or smaller.");
+        payload.attachmentName = file.name;
+        payload.mimeType = file.type;
+        payload.fileData = await new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error("Could not read this document."));
+          reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+          reader.readAsDataURL(file);
+        });
+      }
       await request("/documents", { method: "POST", body: JSON.stringify(payload) });
       setModal(""); await refresh(); notify("Renewal reminder saved");
     } catch (err) { setError(err.message); } finally { setSaving(false); }
+  }
+  async function attachDocumentFile(doc, event) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setSaving(true);
+    try {
+      if (file.size > 1200000) throw new Error("Documents must be 1.2 MB or smaller.");
+      const fileData = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error("Could not read this document."));
+        reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+        reader.readAsDataURL(file);
+      });
+      await request("/documents/" + doc._id + "/file", { method: "POST", body: JSON.stringify({ attachmentName: file.name, mimeType: file.type, fileData }) });
+      await refresh(); notify("Document attached");
+    } catch (err) { setError(err.message); } finally { setSaving(false); event.target.value = ""; }
   }
   async function markPaid(invoice) {
     try {
@@ -407,8 +455,8 @@ function WorkspaceApp({ user, onLogout }) {
       <div className="sidebar-bottom"><div className="workspace-note"><b>One clear picture</b><p>Keep invoice updates and portal links together.</p><div className="progress"><i /></div></div><div className="workspace-user"><span className="user-avatar">{initials(user.name)}</span><span><b>{user.workspaceName || "Workspace"}</b><small>{user.name} · {user.role}</small></span></div></div>
     </aside>
 
-    <main className="main">
-      <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <b>{page === "overview" ? "Overview" : page === "invoices" ? "Invoices" : page === "portals" ? "Customer portals" : page === "documents" ? "Documents" : page === "activity" ? "Activity log" : page === "entities" ? "Entities" : "Team"}</b></div>
+    <main className="main" ref={mainRef}>
+      <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <b>{workspacePageTitles[page]}</b></div>
         <div className="top-actions"><button className="button" onClick={() => setModal("security")}>Password</button><button className="button" onClick={onLogout}>Sign out</button><button className="button" onClick={exportCsv}>↓ Export</button>{canWrite && <button className="button primary" onClick={() => setModal("invoice")}>＋ New invoice</button>}</div>
       </header>
       <div className="content">
@@ -437,7 +485,7 @@ function WorkspaceApp({ user, onLogout }) {
                 {!followups.length && <Empty text="Nothing to follow up." />}
               </section>
               <section className="panel side-panel"><div className="side-heading"><b>Documents</b><button className="text-link" onClick={() => navigate("documents")}>Manage</button></div>
-                {documents.slice(0, 3).map((doc) => <div className="document-row" key={doc._id}><span>▧</span><b>{doc.name}</b><small>{dateLabel(doc.expiresAt)}</small></div>)}
+                {documents.slice(0, 3).map((doc) => <div className="document-row" key={doc._id}><span>▧</span><b>{doc.name}</b><small>{dateLabel(doc.expiresAt)}</small>{doc.attachmentName && <a className="document-open-link" href={"/api/documents/" + doc._id + "/file"} target="_blank" rel="noreferrer">Open</a>}</div>)}
                 {!documents.length && <Empty text="No documents tracked yet." />}
               </section>
             </div>
@@ -463,9 +511,9 @@ function WorkspaceApp({ user, onLogout }) {
 
         {!loading && page === "documents" && <section>
           <div className="page-head"><div><div className="eyebrow">Shared paperwork</div><h1>Documents</h1><p>Track renewal dates for documents customers may request.</p></div><div className="head-buttons">{canWrite && <button className="button primary" onClick={() => setModal("document")}>＋ Add document</button>}</div></div>
-          <div className="cards-grid">{documents.map((doc) => <article className="document-card" key={doc._id}><div className="portal-card-head"><span className="document-icon">▧</span><span className={"pill " + (dayDelta(doc.expiresAt) <= 30 ? "pill-amber" : "pill-green")}>{dayDelta(doc.expiresAt) <= 30 ? "Renew soon" : "Active"}</span></div><h2>{doc.name}</h2><p>{doc.category}</p><div className="document-foot"><span>Renewal / expiry</span><b>{dateLabel(doc.expiresAt)}</b></div></article>)}</div>
+          <div className="cards-grid">{documents.map((doc) => <article className="document-card" key={doc._id}><div className="portal-card-head"><span className="document-icon">▧</span><span className={"pill " + (dayDelta(doc.expiresAt) <= 30 ? "pill-amber" : "pill-green")}>{dayDelta(doc.expiresAt) <= 30 ? "Renew soon" : "Active"}</span></div><h2>{doc.name}</h2><p>{doc.category} · {doc.attachmentName ? doc.attachmentName : "No file attached"}</p><div className="document-foot"><span>Renewal / expiry</span><b>{dateLabel(doc.expiresAt)}</b></div>{doc.attachmentName && <div className="document-file-actions">{doc.attachmentName && <a className="button" href={"/api/documents/" + doc._id + "/file"} target="_blank" rel="noreferrer">↗ Open document</a>}<label className="button document-open-button">{saving ? "Attaching…" : doc.attachmentName ? "Replace file" : "＋ Attach file"}<input type="file" accept="application/pdf,image/png,image/jpeg" onChange={event => attachDocumentFile(doc, event)} disabled={saving} hidden /></label></div>}</article>)}</div>
           {!documents.length && <Empty text="No documents yet. Add a renewal date to track it here." />}
-          <p className="footnote">This MVP stores document names and dates only. It does not upload files.</p>
+          <p className="footnote">Attach a PDF, PNG, or JPEG (up to 1.2 MB) to open it here.</p>
         </section>}
       </div>
     </main>
@@ -493,8 +541,8 @@ function WorkspaceApp({ user, onLogout }) {
         <Field label="Typical payment terms (days)"><input name="paymentTermsDays" type="number" min="0" max="365" defaultValue="30" /></Field>
         <Field label="Submission requirements" full><textarea name="requirements" maxLength="2000" placeholder="PO number, timesheet, service period, required attachment…" /></Field><div className="modal-actions form-full"><button type="button" className="button" onClick={() => setModal("")}>Cancel</button><button className="button primary" disabled={saving}>{saving ? "Saving…" : "Save portal"}</button></div></form>
     </Modal>}
-    {modal === "document" && <Modal title="Add document reminder" description="Track the document name and renewal date. This MVP doesn’t upload files." onClose={() => setModal("")}>
-      <form className="form-grid" onSubmit={saveDocument}><Field label="Document name"><input name="name" required maxLength="160" placeholder="Insurance certificate" /></Field><Field label="Renewal date"><input name="expiresAt" type="date" required /></Field><Field label="Category" full><select name="category"><option>Insurance</option><option>Registration</option><option>Tax document</option><option>Safety certificate</option><option>Other</option></select></Field><div className="modal-actions form-full"><button type="button" className="button" onClick={() => setModal("")}>Cancel</button><button className="button primary" disabled={saving}>{saving ? "Saving…" : "Save reminder"}</button></div></form>
+    {modal === "document" && <Modal title="Add document" description="Upload a PDF, PNG, or JPEG file with its renewal date." onClose={() => setModal("")}>
+      <form className="form-grid" onSubmit={saveDocument}><Field label="Document name"><input name="name" required maxLength="160" placeholder="Insurance certificate" /></Field><Field label="Renewal date"><input name="expiresAt" type="date" required /></Field><Field label="Category"><select name="category"><option>Insurance</option><option>Registration</option><option>Tax document</option><option>Safety certificate</option><option>Other</option></select></Field><Field label="File (PDF, PNG, JPEG)" full><input name="file" type="file" accept="application/pdf,image/png,image/jpeg" /></Field><div className="modal-actions form-full"><button type="button" className="button" onClick={() => setModal("")}>Cancel</button><button className="button primary" disabled={saving}>{saving ? "Saving…" : "Save document"}</button></div></form>
     </Modal>}
     {selected && <Modal title={selected.number} description={selected.client + " · " + effectiveStatus(selected)} onClose={() => setSelected(null)}>
       <div className="detail-amount">{money(selected.amount, selected.currency || "EUR")}</div><div className="detail-grid">

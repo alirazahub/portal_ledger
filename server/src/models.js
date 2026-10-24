@@ -101,6 +101,10 @@ const DocumentSchema = new Schema({
   name: { type: String, required: true, trim: true, maxlength: 160 },
   category: { type: String, enum: ["Insurance", "Registration", "Tax document", "Safety certificate", "Other"], default: "Other" },
   expiresAt: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
+  attachmentName: { type: String, trim: true, maxlength: 160, default: "" },
+  mimeType: { type: String, enum: ["application/pdf", "image/png", "image/jpeg", ""], default: "" },
+  size: { type: Number, max: 1200000, default: 0 },
+  data: { type: Buffer, select: false },
 }, { timestamps: true });
 DocumentSchema.index({ organizationId: 1, expiresAt: 1 });
 

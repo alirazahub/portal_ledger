@@ -359,12 +359,39 @@ app.delete("/api/portals/:id", role("owner", "admin", "accountant"), async (req,
 
 app.get("/api/documents", async (req, res) => res.json({ data: await TrackedDocument.find({ organizationId: req.user.organizationId }).sort({ expiresAt: 1 }).lean() }));
 app.post("/api/documents", role("owner", "admin", "accountant"), async (req, res) => {
+  const attachmentName = String(req.body?.attachmentName || "").split(/[\\/]/).pop().trim().slice(0, 160);
+  const mimeType = String(req.body?.mimeType || ""), encoded = String(req.body?.fileData || "");
+  let attachment = {};
+  if (attachmentName || mimeType || encoded) {
+    if (!attachmentName || !["application/pdf", "image/png", "image/jpeg"].includes(mimeType) || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return res.status(400).json({ error: "Attach a PDF, PNG, or JPEG document." });
+    const data = Buffer.from(encoded, "base64");
+    if (!data.length || data.length > 1200000 || data.toString("base64") !== encoded) return res.status(413).json({ error: "Documents must be smaller than 1.2 MB." });
+    attachment = { attachmentName, mimeType, size: data.length, data };
+  }
   const document = await TrackedDocument.create({
     organizationId: req.user.organizationId, name: String(req.body?.name || "").trim(),
-    category: req.body?.category || "Other", expiresAt: req.body?.expiresAt,
+    category: req.body?.category || "Other", expiresAt: req.body?.expiresAt, ...attachment,
   });
-  await audit(req, "document.created", "document", document._id, `Renewal reminder “${document.name}” created`);
-  res.status(201).json({ data: document });
+  await audit(req, "document.created", "document", document._id, `Document “${document.name}” created${attachmentName ? " with an attachment" : ""}`);
+  res.status(201).json({ data: { _id: document._id, name: document.name, category: document.category, expiresAt: document.expiresAt, attachmentName: document.attachmentName, mimeType: document.mimeType, size: document.size, createdAt: document.createdAt } });
+});
+app.get("/api/documents/:id/file", async (req, res) => {
+  const file = await TrackedDocument.findOne({ _id: req.params.id, organizationId: req.user.organizationId }).select("+data");
+  if (!file?.data || !file.mimeType) return res.status(404).json({ error: "Document file not found." });
+  const safeName = (file.attachmentName || "document").replace(/[^A-Za-z0-9._-]/g, "_");
+  res.set({ "Content-Type": file.mimeType, "Content-Length": String(file.size), "Content-Disposition": `inline; filename="${safeName}"`, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+  res.send(file.data);
+});
+app.post("/api/documents/:id/file", role("owner", "admin", "accountant"), async (req, res) => {
+  const attachmentName = String(req.body?.attachmentName || "").split(/[\\/]/).pop().trim().slice(0, 160);
+  const mimeType = String(req.body?.mimeType || ""), encoded = String(req.body?.fileData || "");
+  if (!attachmentName || !["application/pdf", "image/png", "image/jpeg"].includes(mimeType) || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return res.status(400).json({ error: "Attach a PDF, PNG, or JPEG document." });
+  const data = Buffer.from(encoded, "base64");
+  if (!data.length || data.length > 1200000 || data.toString("base64") !== encoded) return res.status(413).json({ error: "Documents must be smaller than 1.2 MB." });
+  const document = await TrackedDocument.findOneAndUpdate({ _id: req.params.id, organizationId: req.user.organizationId }, { attachmentName, mimeType, size: data.length, data }, { new: true, runValidators: true });
+  if (!document) return res.status(404).json({ error: "Document not found." });
+  await audit(req, "document.file.attached", "document", document._id, `File attached to “${document.name}”`);
+  res.json({ data: { _id: document._id, attachmentName: document.attachmentName, mimeType: document.mimeType, size: document.size } });
 });
 app.patch("/api/documents/:id", role("owner", "admin", "accountant"), async (req, res) => {
   const document = await TrackedDocument.findOneAndUpdate({ _id: req.params.id, organizationId: req.user.organizationId },
