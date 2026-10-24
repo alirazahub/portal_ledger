@@ -30,28 +30,43 @@ Portal Ledger helps a supplier team track customer-portal invoice submissions, d
 - **Viewer:** read and export records.
 - Password changes revoke the account's other active sessions.
 
-## Isolated demo data and RBAC checks
+## Demo data and RBAC checks
 
-Use a separate MongoDB database whose name ends in `_demo` (for example, `portal_ledger_demo`). Never point the demo scripts at Production. Put that URI in `server/.env`, then run from the repository root:
+The seed is insert-only: it refuses to run if its target workspace or any of the four demo login emails already exists. It never deletes or replaces records.
+
+### Separate local demo database
+
+Use a MongoDB database whose name ends in `_demo` (for example, `portal_ledger_demo`). Put its URI in `server/.env`, then run from the repository root:
 
 ```powershell
 $env:DEMO_SEED_CONFIRM = "YES"
-$env:DEMO_SEED_RESET = "YES"
 npm run seed:demo
 ```
 
-The seed refuses `NODE_ENV=production`, requires both confirmations, and only replaces the named demo workspace in a database ending in `_demo`. It creates 4 role accounts, 56 invoices across all statuses, 3 legal entities and currencies, 8 customer portals, 15 expiring documents, 6 synthetic PDF evidence files, 64 audit events, and a pending invitation.
+### Live database
 
-All four accounts use the demo-only password `PortalDemo-2026-Access!`: `owner@portal-ledger.test`, `admin@portal-ledger.test`, `accountant@portal-ledger.test`, and `viewer@portal-ledger.test`. Change these credentials before sharing a demo environment.
+The live mode adds a separate workspace named **Portal Ledger Demo Sandbox (Synthetic)** to the production database. It creates 4 role accounts, 56 invoices across all statuses, 3 legal entities and currencies, 8 customer portals, 15 expiring documents, 6 synthetic PDF evidence files, 64 audit events, and a pending invitation. App data access is scoped by workspace.
 
-With the API running against that same demo database, run:
+Run this only once, from a trusted local checkout. Set `MONGODB_URI` in `server/.env` to the intended production database, then use a unique password of at least 20 characters for the demo accounts:
+
+```powershell
+$env:DEMO_SEED_LIVE_CONFIRM = "YES_I_CONFIRM_LIVE_DEMO_DATA"
+$env:DEMO_SEED_PASSWORD = "choose-a-unique-password-at-least-20-characters"
+npm run seed:demo
+```
+
+Live mode refuses the `*_demo` database, refuses if the sandbox or any demo email already exists, and has no reset path. The four accounts are `owner@portal-ledger.test`, `admin@portal-ledger.test`, `accountant@portal-ledger.test`, and `viewer@portal-ledger.test`; all use the password supplied through `DEMO_SEED_PASSWORD`. The RBAC smoke test remains restricted to a separate `*_demo` database.
+
+### Role smoke test
+
+With the API running against the separate demo database, run:
 
 ```powershell
 $env:DEMO_TEST_CONFIRM = "YES"
 npm run test:rbac
 ```
 
-The RBAC smoke test signs into each role and checks identity, read access, audit/team restrictions, and invoice creation permissions. The test only permits a database ending in `_demo`; smoke-created invoices are deleted after each check.
+It checks sign-in and identity for all roles, read access, audit/team restrictions, and invoice creation permissions. Smoke-created invoices are deleted after each check.
 
 ## Vercel deployment
 
