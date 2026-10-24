@@ -25,7 +25,7 @@ for(const [role,email] of accounts){
   const cookie=login.headers.get("set-cookie")?.split(";")[0];
   assert.ok(cookie,role+" login must set session cookie");cookies.set(email,cookie);
   const me=await request("/api/auth/me",{email});
-  await check(role+" authenticated identity",role,me.body?.data?.role);
+  await check(role+" authenticated identity",role,me.body?.data?.user?.role);
   for(const path of ["/api/invoices","/api/portals","/api/documents","/api/entities"]){
     const response=await request(path,{email}); await check(role+" can read "+path,200,response.status);
   }
