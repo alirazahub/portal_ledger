@@ -4,7 +4,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import mongoose from "mongoose";
-import { AuditEvent, AuthAttempt, Invitation, Invoice, Organization, Portal, Session, SetupLock, TrackedDocument, User } from "./models.js";
+import { AuditEvent, AuthAttempt, Invitation, Invoice, InvoiceEvidence, LegalEntity, Organization, Portal, Session, SetupLock, TrackedDocument, User } from "./models.js";
 
 const app = express();
 const scrypt = promisify(scryptCallback);
@@ -25,7 +25,7 @@ app.use(cors({
   methods: ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type"],
 }));
-app.use(express.json({ limit: "32kb" }));
+app.use(express.json({ limit: "2mb" }));
 
 function verifyOrigin(req, res, next) {
   if (!["POST", "PATCH", "DELETE"].includes(req.method)) return next();
@@ -101,8 +101,16 @@ export async function initializeDatabase() {
       try { await model.collection.dropIndex(index); }
       catch (error) { if (error.code !== 27 && error.codeName !== "IndexNotFound" && error.codeName !== "NamespaceNotFound") throw error; }
     }
-    await Promise.all([Organization, User, Session, Invitation, AuthAttempt, SetupLock, AuditEvent, Invoice, Portal, TrackedDocument].map(model => model.createIndexes()));
+    await Promise.all([Organization, User, Session, Invitation, AuthAttempt, SetupLock, AuditEvent, LegalEntity, InvoiceEvidence, Invoice, Portal, TrackedDocument].map(model => model.createIndexes()));
     await SetupLock.updateOne({ key: "initial-owner" }, { $setOnInsert: { key: "initial-owner" } }, { upsert: true });
+    const organizations = await Organization.find({}).select("_id").lean();
+    for (const organization of organizations) {
+      let entity = await LegalEntity.findOne({ organizationId: organization._id, isDefault: true });
+      if (!entity) entity = await LegalEntity.findOneAndUpdate({ organizationId: organization._id, name: "Primary entity" },
+        { $setOnInsert: { organizationId: organization._id, name: "Primary entity", currency: "EUR", isDefault: true } },
+        { new: true, upsert: true, setDefaultsOnInsert: true });
+      await Invoice.updateMany({ organizationId: organization._id, entityId: { $exists: false } }, { $set: { entityId: entity._id, currency: entity.currency || "EUR" } });
+    }
   })().catch(error => { databaseInitialization = undefined; throw error; });
   return databaseInitialization;
 }
@@ -220,6 +228,18 @@ app.post("/api/auth/change-password", authLimiter, async (req, res) => {
   res.json({ data: { changed: true } });
 });
 
+app.get("/api/entities", async (req, res) => {
+  res.json({ data: await LegalEntity.find({ organizationId: req.user.organizationId }).sort({ isDefault: -1, name: 1 }).lean() });
+});
+app.post("/api/entities", role("owner", "admin"), async (req, res) => {
+  const name = String(req.body?.name || "").trim(), country = String(req.body?.country || "").trim();
+  const currency = String(req.body?.currency || "EUR").toUpperCase();
+  if (name.length < 2 || name.length > 120) return res.status(400).json({ error: "Entity name must be 2 to 120 characters." });
+  if (!["EUR", "USD", "GBP", "CHF", "CAD"].includes(currency)) return res.status(400).json({ error: "Choose a supported currency." });
+  const entity = await LegalEntity.create({ organizationId: req.user.organizationId, name, country, currency });
+  await audit(req, "entity.created", "entity", entity._id, `Legal entity ${entity.name} added (${currency})`);
+  res.status(201).json({ data: entity });
+});
 app.get("/api/audit", role("owner", "admin"), async (req, res) => {
   const parsed = Number.parseInt(String(req.query.limit || "40"), 10);
   const limit = Math.min(Math.max(Number.isFinite(parsed) ? parsed : 40, 1), 100);
@@ -243,12 +263,17 @@ app.get("/api/invoices", async (req, res) => {
     const expression = new RegExp(escaped, "i");
     filter.$or = [{ number: expression }, { client: expression }, { portal: expression }, { reference: expression }];
   }
+  if (req.query.entityId) filter.entityId = String(req.query.entityId);
+  if (req.query.currency) filter.currency = String(req.query.currency).toUpperCase();
   res.json({ data: await Invoice.find(filter).sort({ due: 1, createdAt: -1 }).lean() });
 });
 app.post("/api/invoices", role("owner", "admin", "accountant"), async (req, res) => {
-  const allowed = ["number", "client", "amount", "portal", "submitted", "due", "status", "reference", "note"];
+  const allowed = ["number", "client", "amount", "currency", "entityId", "portal", "submitted", "due", "status", "reference", "note", "rejectionReason", "assignedTo", "followUpAt", "expectedPaymentDate"];
   const payload = Object.fromEntries(Object.entries(req.body || {}).filter(([key]) => allowed.includes(key)));
   payload.organizationId = req.user.organizationId;
+  const entity = payload.entityId ? await LegalEntity.findOne({ _id: payload.entityId, organizationId: req.user.organizationId }) : await LegalEntity.findOne({ organizationId: req.user.organizationId, isDefault: true });
+  if (!entity) return res.status(400).json({ error: "Choose a legal entity in this workspace." });
+  payload.entityId = entity._id; payload.currency ||= entity.currency || "EUR";
   const invoice = await Invoice.create(payload);
   await Portal.updateOne(
     { organizationId: req.user.organizationId, name: invoice.portal },
@@ -258,8 +283,10 @@ app.post("/api/invoices", role("owner", "admin", "accountant"), async (req, res)
   res.status(201).json({ data: invoice });
 });
 app.patch("/api/invoices/:id", role("owner", "admin", "accountant"), async (req, res) => {
-  const allowed = ["status", "note", "reference", "due", "submitted"];
+  const allowed = ["status", "note", "reference", "due", "submitted", "rejectionReason", "assignedTo", "followUpAt", "expectedPaymentDate", "currency", "entityId"];
   const update = Object.fromEntries(Object.entries(req.body || {}).filter(([key]) => allowed.includes(key)));
+  if (update.entityId && !await LegalEntity.exists({ _id: update.entityId, organizationId: req.user.organizationId })) return res.status(400).json({ error: "Choose a legal entity in this workspace." });
+  if (update.assignedTo && !await User.exists({ _id: update.assignedTo, organizationId: req.user.organizationId })) return res.status(400).json({ error: "Choose a workspace team member." });
   if (update.status === "Paid") update.paidAt = new Date().toISOString().slice(0, 10);
   if (update.status && update.status !== "Paid") update.paidAt = "";
   const invoice = await Invoice.findOneAndUpdate({ _id: req.params.id, organizationId: req.user.organizationId }, update, { new: true, runValidators: true });
@@ -276,16 +303,52 @@ app.delete("/api/invoices/:id", role("owner", "admin", "accountant"), async (req
   res.status(204).end();
 });
 
+app.get("/api/invoices/:id/evidence", async (req, res) => {
+  if (!await Invoice.exists({ _id: req.params.id, organizationId: req.user.organizationId })) return res.status(404).json({ error: "Invoice not found." });
+  const files = await InvoiceEvidence.find({ invoiceId: req.params.id, organizationId: req.user.organizationId }).select("-data").sort({ createdAt: -1 }).lean();
+  res.json({ data: files });
+});
+app.post("/api/invoices/:id/evidence", role("owner", "admin", "accountant"), async (req, res) => {
+  const invoice = await Invoice.findOne({ _id: req.params.id, organizationId: req.user.organizationId }).select("number");
+  if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+  const name = String(req.body?.name || "").split(/[\\/]/).pop().trim().slice(0, 160);
+  const mimeType = String(req.body?.mimeType || ""), encoded = String(req.body?.data || "");
+  if (!name || !["application/pdf", "image/png", "image/jpeg"].includes(mimeType) || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) return res.status(400).json({ error: "Attach a PDF, PNG, or JPEG file." });
+  const data = Buffer.from(encoded, "base64");
+  if (!data.length || data.length > 1200000 || data.toString("base64") !== encoded) return res.status(413).json({ error: "Evidence files must be smaller than 1.2 MB." });
+  const file = await InvoiceEvidence.create({ organizationId: req.user.organizationId, invoiceId: req.params.id, uploadedBy: req.user.id, name, mimeType, size: data.length, data });
+  await audit(req, "invoice.evidence.added", "invoice", invoice._id, `Evidence attached to invoice ${invoice.number}`);
+  res.status(201).json({ data: { _id: file._id, name, mimeType, size: file.size, createdAt: file.createdAt } });
+});
+app.get("/api/invoices/:id/evidence/:evidenceId", async (req, res) => {
+  const file = await InvoiceEvidence.findOne({ _id: req.params.evidenceId, invoiceId: req.params.id, organizationId: req.user.organizationId }).select("+data");
+  if (!file) return res.status(404).json({ error: "Evidence file not found." });
+  const safeName = file.name.replace(/["\\\r\n]/g, "_");
+  res.set({ "Content-Type": file.mimeType, "Content-Length": String(file.size), "Content-Disposition": `attachment; filename="${safeName}"`, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" });
+  res.send(file.data);
+});
+app.delete("/api/invoices/:id/evidence/:evidenceId", role("owner", "admin", "accountant"), async (req, res) => {
+  const file = await InvoiceEvidence.findOneAndDelete({ _id: req.params.evidenceId, invoiceId: req.params.id, organizationId: req.user.organizationId });
+  if (!file) return res.status(404).json({ error: "Evidence file not found." });
+  await audit(req, "invoice.evidence.deleted", "invoice", req.params.id, "Evidence removed from invoice");
+  res.status(204).end();
+});
 app.get("/api/portals", async (req, res) => res.json({ data: await Portal.find({ organizationId: req.user.organizationId }).sort({ name: 1 }).lean() }));
 app.post("/api/portals", role("owner", "admin", "accountant"), async (req, res) => {
   const name = String(req.body?.name || "").trim();
   const url = String(req.body?.url || "").trim();
-  const portal = await Portal.create({ organizationId: req.user.organizationId, name, url });
+  const requirements = String(req.body?.requirements || "").trim();
+  const paymentTermsDays = Number(req.body?.paymentTermsDays ?? 30);
+  if (!Number.isInteger(paymentTermsDays) || paymentTermsDays < 0 || paymentTermsDays > 365) return res.status(400).json({ error: "Payment terms must be between 0 and 365 days." });
+  const portal = await Portal.create({ organizationId: req.user.organizationId, name, url, requirements, paymentTermsDays });
+  await audit(req, "portal.created", "portal", portal._id, `Portal shortcut “${portal.name}” created`);
+  res.status(201).json({ data: portal });
+});
   await audit(req, "portal.created", "portal", portal._id, `Portal shortcut “${portal.name}” created`);
   res.status(201).json({ data: portal });
 });
 app.patch("/api/portals/:id", role("owner", "admin", "accountant"), async (req, res) => {
-  const portal = await Portal.findOneAndUpdate({ _id: req.params.id, organizationId: req.user.organizationId }, { name: req.body?.name, url: req.body?.url }, { new: true, runValidators: true });
+  const portal = await Portal.findOneAndUpdate({ _id: req.params.id, organizationId: req.user.organizationId }, { name: req.body?.name, url: req.body?.url, requirements: req.body?.requirements, paymentTermsDays: req.body?.paymentTermsDays }, { new: true, runValidators: true });
   if (!portal) return res.status(404).json({ error: "Portal not found." });
   await audit(req, "portal.updated", "portal", portal._id, `Portal shortcut “${portal.name}” updated`);
   res.json({ data: portal });

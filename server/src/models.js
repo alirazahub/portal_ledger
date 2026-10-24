@@ -36,6 +36,24 @@ const SetupLockSchema = new Schema({
   claimExpiresAt: { type: Date, default: null },
   completedAt: { type: Date, default: null },
 }, { timestamps: true });
+const LegalEntitySchema = new Schema({
+  organizationId: { type: oid, ref: "Organization", required: true, index: true },
+  name: { type: String, required: true, trim: true, maxlength: 120 },
+  country: { type: String, trim: true, maxlength: 80, default: "" },
+  currency: { type: String, enum: ["EUR", "USD", "GBP", "CHF", "CAD"], default: "EUR" },
+  isDefault: { type: Boolean, default: false },
+}, { timestamps: true });
+LegalEntitySchema.index({ organizationId: 1, name: 1 }, { unique: true });
+const InvoiceEvidenceSchema = new Schema({
+  organizationId: { type: oid, ref: "Organization", required: true, index: true },
+  invoiceId: { type: oid, ref: "Invoice", required: true, index: true },
+  uploadedBy: { type: oid, ref: "User", required: true },
+  name: { type: String, required: true, maxlength: 160 },
+  mimeType: { type: String, enum: ["application/pdf", "image/png", "image/jpeg"], required: true },
+  size: { type: Number, required: true, max: 1200000 },
+  data: { type: Buffer, required: true, select: false },
+}, { timestamps: true });
+InvoiceEvidenceSchema.index({ organizationId: 1, invoiceId: 1, createdAt: -1 });
 const AuditEventSchema = new Schema({
   organizationId: { type: oid, ref: "Organization", required: true, index: true },
   actorId: { type: oid, ref: "User", required: true },
@@ -54,12 +72,18 @@ const InvoiceSchema = new Schema({
   number: { type: String, required: true, trim: true, maxlength: 80 },
   client: { type: String, required: true, trim: true, maxlength: 160 },
   amount: { type: Number, required: true, min: 0.01 },
+  currency: { type: String, enum: ["EUR", "USD", "GBP", "CHF", "CAD"], default: "EUR" },
+  entityId: { type: oid, ref: "LegalEntity", index: true },
   portal: { type: String, required: true, trim: true, maxlength: 120 },
   submitted: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
   due: { type: String, required: true, match: /^\d{4}-\d{2}-\d{2}$/ },
-  status: { type: String, enum: ["Draft", "Submitted", "Approved", "Processing", "Paid"], default: "Draft" },
+  status: { type: String, enum: ["Draft", "Submitted", "Needs info", "Rejected", "Approved", "Processing", "Paid"], default: "Draft" },
   reference: { type: String, trim: true, maxlength: 120, default: "" },
   note: { type: String, trim: true, maxlength: 2000, default: "" },
+  rejectionReason: { type: String, trim: true, maxlength: 1000, default: "" },
+  assignedTo: { type: oid, ref: "User", default: null },
+  followUpAt: { type: String, default: "" },
+  expectedPaymentDate: { type: String, default: "" },
   paidAt: { type: String, default: "" },
 }, { timestamps: true });
 InvoiceSchema.index({ organizationId: 1, client: 1, number: 1 }, { unique: true, partialFilterExpression: { organizationId: { $type: "objectId" } } });
@@ -68,6 +92,8 @@ const PortalSchema = new Schema({
   organizationId: { type: oid, ref: "Organization", required: true },
   name: { type: String, required: true, trim: true, maxlength: 160 },
   url: { type: String, trim: true, default: "", validate: { validator: value => !value || /^https?:\/\//i.test(value), message: "Portal URLs must use http or https." } },
+  requirements: { type: String, trim: true, maxlength: 2000, default: "" },
+  paymentTermsDays: { type: Number, min: 0, max: 365, default: 30 },
 }, { timestamps: true });
 PortalSchema.index({ organizationId: 1, name: 1 }, { unique: true });
 const DocumentSchema = new Schema({
@@ -85,6 +111,8 @@ export const Invitation = mongoose.models.Invitation || mongoose.model("Invitati
 export const AuthAttempt = mongoose.models.AuthAttempt || mongoose.model("AuthAttempt", AuthAttemptSchema);
 export const SetupLock = mongoose.models.SetupLock || mongoose.model("SetupLock", SetupLockSchema);
 export const AuditEvent = mongoose.models.AuditEvent || mongoose.model("AuditEvent", AuditEventSchema);
+export const LegalEntity = mongoose.models.LegalEntity || mongoose.model("LegalEntity", LegalEntitySchema);
+export const InvoiceEvidence = mongoose.models.InvoiceEvidence || mongoose.model("InvoiceEvidence", InvoiceEvidenceSchema);
 export const Invoice = mongoose.models.Invoice || mongoose.model("Invoice", InvoiceSchema);
 export const Portal = mongoose.models.Portal || mongoose.model("Portal", PortalSchema);
 export const TrackedDocument = mongoose.models.TrackedDocument || mongoose.model("TrackedDocument", DocumentSchema);
