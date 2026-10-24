@@ -344,9 +344,6 @@ app.post("/api/portals", role("owner", "admin", "accountant"), async (req, res) 
   await audit(req, "portal.created", "portal", portal._id, `Portal shortcut “${portal.name}” created`);
   res.status(201).json({ data: portal });
 });
-  await audit(req, "portal.created", "portal", portal._id, `Portal shortcut “${portal.name}” created`);
-  res.status(201).json({ data: portal });
-});
 app.patch("/api/portals/:id", role("owner", "admin", "accountant"), async (req, res) => {
   const portal = await Portal.findOneAndUpdate({ _id: req.params.id, organizationId: req.user.organizationId }, { name: req.body?.name, url: req.body?.url, requirements: req.body?.requirements, paymentTermsDays: req.body?.paymentTermsDays }, { new: true, runValidators: true });
   if (!portal) return res.status(404).json({ error: "Portal not found." });
