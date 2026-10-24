@@ -1,51 +1,45 @@
-# Portal Ledger (MERN)
+# Portal Ledger
 
-Portal Ledger is a small supplier-side workspace for recording invoices submitted through customer portals, monitoring due dates, and keeping renewal reminders together.
+Portal Ledger helps a supplier team track customer-portal invoice submissions, due dates, follow-ups, and document renewals.
 
 ## Stack
 
-- React 19 + Vite 8 client
-- Express 5 API on Node.js
-- MongoDB with Mongoose 9
+- React and Vite client
+- Express API on Node.js
+- MongoDB and Mongoose
+- Vercel static hosting and serverless API
 
-## Run locally
+## Local setup
 
-Requirements: Node.js 20.19+ (or 22.12+) and a MongoDB instance.
+1. Use Node.js 20.19 or newer.
+2. Copy `.env.example` to `server/.env`.
+3. Set `MONGODB_URI` and a random `PORTAL_LEDGER_SETUP_KEY` in `server/.env`.
+4. Install dependencies from the repository root with `npm install`.
+5. Start the API and UI in separate terminals with `npm run dev:api` and `npm run dev:web`.
+6. Open the Vite URL. The first account uses the one-time setup key to create the workspace owner.
 
-1. Install dependencies from the project root:
+## Authentication and roles
 
-   `npm install`
+- Workspace setup is closed after the first owner account is created.
+- The owner and admins create single-use invitation links that expire after seven days. Share the link directly; this project does not send email.
+- Sessions use random, hashed server-side tokens in HTTP-only, secure, same-site cookies. Passwords are hashed with scrypt.
+- Every invoice, portal, and document query is scoped to the signed-in user's workspace.
+- **Owner:** full access, including admin invitations and member management.
+- **Admin:** record and team management; can invite accountants and viewers.
+- **Accountant:** create, edit, and remove invoices, portals, and renewal reminders.
+- **Viewer:** read and export records.
+- Password changes revoke the account's other active sessions.
 
-2. Copy `.env.example` to `server/.env` and set `MONGODB_URI`. The example URI works with a local MongoDB server.
+## Vercel deployment
 
-3. Start the API and web client in separate terminals:
+The project is configured to build the Vite client and expose the Express API as a Vercel function. Set these environment variables for Production and Preview:
 
-   `npm run dev:api`
+- `MONGODB_URI`: MongoDB Atlas connection string.
+- `CLIENT_ORIGIN` and `APP_ORIGIN`: the deployed app origin.
+- `PORTAL_LEDGER_SETUP_KEY`: a long random one-time code for the first owner registration. Remove it from Vercel after the owner account is created.
 
-   `npm run dev:web`
+The first owner creates the organization and claims records from the original single-workspace MVP. Data created after that is isolated by organization. Use a restricted MongoDB database user and limit its network access to the deployment where practical.
 
-4. Open the Vite URL printed in the web terminal (normally `http://localhost:5173`).
+## Important limitations
 
-
-## Main API routes
-
-- `GET /api/health`
-- `GET /api/invoices?q=&status=`
-- `POST /api/invoices`
-- `PATCH /api/invoices/:id` (status, note, reference, due, submitted)
-- `DELETE /api/invoices/:id`
-- `GET/POST/PATCH/DELETE /api/portals`
-- `GET/POST/PATCH/DELETE /api/documents`
-
-The client talks to `/api`; Vite proxies those requests to the Express API on port 4000.
-
-## Current scope
-
-This is a single-workspace MVP. It has no sign-in, tenant isolation, portal automation, file uploads, or payment processing. Portal status is entered by the user; portal credentials are not collected. Do not use real customer or financial records until authentication, authorization, operational logging, backups, and production deployment settings are added.
-
-
-## Deploy to Vercel
-
-The repository includes a Vercel configuration for the Vite client and Express API function. Create a MongoDB Atlas database, then add `MONGODB_URI` in the Vercel project’s Production Environment Variables. The local example URI only works on your machine.
-
-After deployment, the API is available under the same domain at `/api`. This MVP has no sign-in or access control. Do not enter real invoice, customer, or document data until authentication and authorization are added.
+This is an MVP. It does not yet send email, verify email addresses, or provide password-reset email. Admins share invitation links manually. Do not use real financial records until you have reviewed the deployment, backup, and access policies.
