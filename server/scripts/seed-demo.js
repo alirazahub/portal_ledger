@@ -12,7 +12,7 @@ function assertSafeTarget() {
   const liveMode = process.env.DEMO_SEED_LIVE_CONFIRM === "YES_I_CONFIRM_LIVE_DEMO_DATA";
   if (process.env.DEMO_SEED_LIVE_CONFIRM && !liveMode) throw new Error("Live confirmation value is invalid.");
   const uri = new URL(process.env.MONGODB_URI);
-  const database = new URLSearchParams(uri.search).get("dbName") || uri.pathname.replace(/^\\//, "");
+  const database = new URLSearchParams(uri.search).get("dbName") || uri.pathname.replace(/^\//, "");
   if (liveMode) {
     if (!database || database.endsWith("_demo")) throw new Error("Live mode requires the production database name, not a *_demo database.");
     if (process.env.DEMO_SEED_RESET === "YES") throw new Error("Live seeding is insert-only and does not support reset.");
