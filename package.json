@@ -1,0 +1,13 @@
+{
+  "name": "portal-ledger",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["client", "server"],
+  "scripts": {
+    "dev:api": "npm run dev --workspace server",
+    "dev:web": "npm run dev --workspace client",
+    "build": "npm run build --workspace client",
+    "seed:demo": "npm run seed --workspace server"
+  },
+  "engines": { "node": ">=20.19.0" }
+}
