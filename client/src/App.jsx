@@ -286,7 +286,7 @@ function WorkspaceApp({ user, onLogout }) {
         {error && <div className="error-banner" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss error">×</button></div>}
         {loading && <div className="loading-card">Connecting to your Portal Ledger API…</div>}
         {!loading && page === "overview" && <section>
-          <div className="page-head"><div><div className="eyebrow">{today}</div><h1>Welcome, {user.name.split(" ")[0]}</h1><p>Here’s what needs attention across your customer portals.</p></div><div className="head-buttons"><button className="button" onClick={exportCsv}>↓ Export report</button>{canWrite && {canWrite && <button className="button primary" onClick={() => setModal("invoice")}>＋ Add invoice</button>}}</div></div>
+          <div className="page-head"><div><div className="eyebrow">{today}</div><h1>Welcome, {user.name.split(" ")[0]}</h1><p>Here’s what needs attention across your customer portals.</p></div><div className="head-buttons"><button className="button" onClick={exportCsv}>↓ Export report</button>{canWrite && <button className="button primary" onClick={() => setModal("invoice")}>＋ Add invoice</button>}</div></div>
           <div className="stats-grid">
             <Stat label="Outstanding" value={money(outstanding)} foot="Across open invoices" icon="€" tone="green" />
             <Stat label="Due this week" value={money(dueSoonTotal)} foot="Next seven days" icon="◷" tone="amber" />
