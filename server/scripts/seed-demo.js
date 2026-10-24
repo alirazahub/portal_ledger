@@ -5,34 +5,36 @@ import { promisify } from "node:util";
 import { AuditEvent, Invitation, Invoice, InvoiceEvidence, LegalEntity, Organization, Portal, Session, TrackedDocument, User } from "../src/models.js";
 
 const scrypt = promisify(scryptCallback);
-const password = "PortalDemo-2026-Access!";
+const defaultDemoPassword = "PortalDemo-2026-Access!";
 const emails = ["owner@portal-ledger.test", "admin@portal-ledger.test", "accountant@portal-ledger.test", "viewer@portal-ledger.test"];
 function assertSafeTarget() {
-  if (process.env.NODE_ENV === "production") throw new Error("Refusing to seed while NODE_ENV=production.");
-  if (process.env.DEMO_SEED_CONFIRM !== "YES") throw new Error("Set DEMO_SEED_CONFIRM=YES to confirm an isolated demo seed.");
   if (!process.env.MONGODB_URI) throw new Error("MONGODB_URI is required in server/.env.");
+  const liveMode = process.env.DEMO_SEED_LIVE_CONFIRM === "YES_I_CONFIRM_LIVE_DEMO_DATA";
+  if (process.env.DEMO_SEED_LIVE_CONFIRM && !liveMode) throw new Error("Live confirmation value is invalid.");
   const uri = new URL(process.env.MONGODB_URI);
-  const db = new URLSearchParams(uri.search).get("dbName") || uri.pathname.replace(/^\//, "");
-  if (!db.endsWith("_demo")) throw new Error("Refusing to seed: MongoDB database name must end with _demo.");
-  if (process.env.DEMO_SEED_RESET !== "YES") throw new Error("Set DEMO_SEED_RESET=YES to replace this named demo workspace.");
+  const database = new URLSearchParams(uri.search).get("dbName") || uri.pathname.replace(/^\\//, "");
+  if (liveMode) {
+    if (!database || database.endsWith("_demo")) throw new Error("Live mode requires the production database name, not a *_demo database.");
+    if (process.env.DEMO_SEED_RESET === "YES") throw new Error("Live seeding is insert-only and does not support reset.");
+    const password = process.env.DEMO_SEED_PASSWORD || "";
+    if (password.length < 20 || password.length > 128) throw new Error("Set DEMO_SEED_PASSWORD to a unique password of 20 to 128 characters for these demo accounts.");
+    return { liveMode: true, database, password, workspaceName: "Portal Ledger Demo Sandbox (Synthetic)" };
+  }
+  if (process.env.NODE_ENV === "production") throw new Error("Refusing to seed in production without the explicit live confirmation.");
+  if (process.env.DEMO_SEED_CONFIRM !== "YES") throw new Error("Set DEMO_SEED_CONFIRM=YES to confirm a demo seed.");
+  if (!database.endsWith("_demo")) throw new Error("Refusing to seed: MongoDB database name must end with _demo.");
+  return { liveMode: false, database, password: defaultDemoPassword, workspaceName: "Portal Ledger Demo Workspace" };
 }
 function date(offsetDays) { const d = new Date(); d.setUTCDate(d.getUTCDate() + offsetDays); return d.toISOString().slice(0,10); }
 try {
-  assertSafeTarget();
+  const target = assertSafeTarget();
   await mongoose.connect(process.env.MONGODB_URI);
-  const old = await Organization.findOne({ name: "Portal Ledger Demo Workspace" });
-  if (old) {
-    const org = old._id;
-    await Promise.all([
-      AuditEvent.deleteMany({ organizationId: org }), InvoiceEvidence.deleteMany({ organizationId: org }),
-      Invoice.deleteMany({ organizationId: org }), LegalEntity.deleteMany({ organizationId: org }),
-      Portal.deleteMany({ organizationId: org }), TrackedDocument.deleteMany({ organizationId: org }),
-      Invitation.deleteMany({ organizationId: org }), Session.deleteMany({ organizationId: org }),
-      User.deleteMany({ organizationId: org }), Organization.deleteOne({ _id: org }),
-    ]);
-  }
-  await User.deleteMany({ email: { $in: emails } });
-  const organization = await Organization.create({ name: "Portal Ledger Demo Workspace" });
+  const existingWorkspace = await Organization.findOne({ name: target.workspaceName }).lean();
+  if (existingWorkspace) throw new Error("The demo workspace already exists. This seeder never deletes or replaces data.");
+  const existingAccount = await User.findOne({ email: { $in: emails } }).select("_id").lean();
+  if (existingAccount) throw new Error("A demo login email is already in use. No records were added.");
+  const organization = await Organization.create({ name: target.workspaceName });
+  const password = target.password;
   const users = [];
   for (const [i, role] of ["owner","admin","accountant","viewer"].entries()) {
     const salt = randomBytes(16).toString("hex");
@@ -60,6 +62,6 @@ try {
   const events=[];
   for(let i=0;i<64;i++){const actor=users[i%users.length];events.push({organizationId:organization._id,actorId:actor._id,actorName:actor.name,actorRole:actor.role,action:["invoice.created","invoice.status.changed","evidence.uploaded","document.updated","portal.updated","team.invitation.created"][i%6],entityType:["invoice","invoice","evidence","document","portal","team"][i%6],entityId:String(madeInvoices[i%madeInvoices.length]._id),summary:"Demo audit event "+String(i+1)+" for role and activity-history testing.",createdAt:new Date(Date.now()-i*3600000)});}
   await AuditEvent.insertMany(events);
-  console.log(JSON.stringify({workspace:organization.name,accounts:emails.map((email,i)=>({email,role:users[i].role})),password,dataset:{invoices:madeInvoices.length,entities:entities.length,portals:portals.length,renewalDocuments:docs.length,evidenceFiles:6,auditEvents:events.length,pendingInvitation:"new.teammate@portal-ledger.test"}},null,2));
+  console.log(JSON.stringify({workspace:organization.name,database:target.database,accounts:emails.map((email,i)=>({email,role:users[i].role})),password:target.liveMode?"Use the value set in DEMO_SEED_PASSWORD":password,dataset:{invoices:madeInvoices.length,entities:entities.length,portals:portals.length,renewalDocuments:docs.length,evidenceFiles:6,auditEvents:events.length,pendingInvitation:"new.teammate@portal-ledger.test"}},null,2));
 } catch(error) { console.error(error.message); process.exitCode=1; }
 finally { await mongoose.disconnect(); }
