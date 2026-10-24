@@ -113,7 +113,7 @@ function App() {
     onSignIn={openLogin}
     onGetStarted={openLogin}
   />;
-  if (checking) return <div className="auth-loading">Opening your secure workspace…</div>;
+  if (checking) return <div className="auth-loading" role="status" aria-live="polite">Loading…</div>;
   if (!user) return <AuthScreen setupRequired={setupRequired} inviteToken={inviteToken} initialError={authError} onBack={inviteToken ? null : returnHome} onAuthenticated={(nextUser) => {
     window.history.replaceState({}, "", "/");
     setAuthError("");
