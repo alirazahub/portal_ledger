@@ -55,7 +55,20 @@ function App() {
   const [checking, setChecking] = useState(true);
   const [authError, setAuthError] = useState("");
   const inviteToken = new URLSearchParams(window.location.search).get("invite") || "";
-  const [showAuth, setShowAuth] = useState(Boolean(inviteToken));
+  const [showAuth, setShowAuth] = useState(Boolean(inviteToken) || ["/login", "/login/"].includes(window.location.pathname));
+
+  useEffect(() => {
+    function syncAuthRoute() {
+      const invite = new URLSearchParams(window.location.search).get("invite");
+      setShowAuth(Boolean(invite) || ["/login", "/login/"].includes(window.location.pathname));
+    }
+    window.addEventListener("popstate", syncAuthRoute);
+    return () => window.removeEventListener("popstate", syncAuthRoute);
+  }, []);
+
+  useEffect(() => {
+    document.title = showAuth ? "Sign in | Portal Ledger" : "Portal Ledger | Invoice operations for supplier teams";
+  }, [showAuth]);
 
   useEffect(() => {
     let active = true;
@@ -76,6 +89,18 @@ function App() {
     return () => { active = false; };
   }, []);
 
+  function openLogin() {
+    if (!["/login", "/login/"].includes(window.location.pathname)) window.history.pushState({}, "", "/login");
+    setShowAuth(true);
+    window.scrollTo(0, 0);
+  }
+
+  function returnHome() {
+    window.history.replaceState({}, "", "/");
+    setShowAuth(false);
+    window.scrollTo(0, 0);
+  }
+
   async function signOut() {
     try { await request("/auth/logout", { method: "POST", body: "{}" }); } catch {}
     setUser(null);
@@ -84,11 +109,11 @@ function App() {
   if (checking) return <div className="auth-loading">Opening your secure workspace…</div>;
   if (!user && !inviteToken && !showAuth) return <PublicLandingPage
     setupRequired={setupRequired}
-    onSignIn={() => setShowAuth(true)}
-    onGetStarted={() => setShowAuth(true)}
+    onSignIn={openLogin}
+    onGetStarted={openLogin}
   />;
-  if (!user) return <AuthScreen setupRequired={setupRequired} inviteToken={inviteToken} initialError={authError} onBack={inviteToken ? null : () => setShowAuth(false)} onAuthenticated={(nextUser) => {
-    window.history.replaceState({}, "", window.location.pathname);
+  if (!user) return <AuthScreen setupRequired={setupRequired} inviteToken={inviteToken} initialError={authError} onBack={inviteToken ? null : returnHome} onAuthenticated={(nextUser) => {
+    window.history.replaceState({}, "", "/");
     setAuthError("");
     setUser(nextUser);
   }} />;
