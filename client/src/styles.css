@@ -212,3 +212,12 @@ td > small { display: block; margin-top: 2px; color: #9aa49f; font-size: 8px; }
 .evidence-row .text-link { overflow: hidden; max-width: 100%; text-overflow: ellipsis; white-space: nowrap; }
 .evidence-row small { margin-left: auto; color: #78827d; white-space: nowrap; }
 @media (max-width: 700px) { .team-invite-form { grid-template-columns: 1fr; } .evidence-row { flex-wrap: wrap; } }
+
+.forecast-panel { margin: 18px 0 24px; }
+.forecast-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px 20px 20px; }
+.forecast-card { display: flex; flex-direction: column; gap: 7px; padding: 14px; border: 1px solid #e8ece9; border-radius: 12px; }
+.forecast-card small, .forecast-card span { color: #7a8580; font-size: 11px; }
+.forecast-card strong { font-size: 17px; }
+.portal-guidance { display: grid; gap: 4px; margin: 10px 0; color: #58645e; font-size: 12px; }
+.portal-guidance small { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-height: 1.4; }
+@media (max-width: 760px) { .forecast-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

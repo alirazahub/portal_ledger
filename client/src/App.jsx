@@ -16,6 +16,8 @@ const dayDelta = (value) => {
 };
 const initials = (value = "") => value.split(/\s+/).slice(0, 2).map((part) => part[0] || "").join("").toUpperCase();
 const effectiveStatus = (invoice) => invoice.status !== "Paid" && invoice.status !== "Draft" && !["Rejected", "Needs info"].includes(invoice.status) && dayDelta(invoice.due) < 0 ? "Overdue" : invoice.status;
+const addDays = (value, days) => { if (!value) return ""; const [y, m, d] = value.slice(0, 10).split("-").map(Number); const date = new Date(y, m - 1, d + Number(days || 0)); return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-"); };
+const estimatedPaymentDate = (invoice, portals) => invoice.expectedPaymentDate || addDays(invoice.submitted, portals.find(p => p.name === invoice.portal)?.paymentTermsDays ?? 30);
 
 async function request(path, options = {}) {
   const response = await fetch("/api" + path, {
@@ -311,7 +313,7 @@ function WorkspaceApp({ user, onLogout }) {
     if (reason === null) return;
     const followUpAt = window.prompt("Follow-up date (YYYY-MM-DD)", invoice.followUpAt || "");
     if (followUpAt === null) return;
-    request("/invoices/" + invoice._id, { method: "PATCH", body: JSON.stringify({ status, rejectionReason: reason, followUpAt }) })
+    request("/invoices/" + invoice._id, { method: "PATCH", body: JSON.stringify({ status, rejectionReason: reason, followUpAt, assignedTo: user.id }) })
       .then(async () => { setSelected(null); await refresh(); notify("Invoice added to the issue queue"); }).catch(err => setError(err.message));
   }
   async function resolveIssue(invoice) {
@@ -384,6 +386,12 @@ function WorkspaceApp({ user, onLogout }) {
 
   const portalNames = [...new Set([...portals.map((p) => p.name), ...invoices.map((i) => i.portal)])];
   const followups = openInvoices.filter((i) => i.status !== "Draft").sort((a, b) => a.due.localeCompare(b.due)).slice(0, 3);
+  const forecastWeeks = Array.from({ length: 4 }, (_, index) => {
+    const start = new Date(); start.setHours(0, 0, 0, 0); start.setDate(start.getDate() + index * 7);
+    const end = new Date(start); end.setDate(end.getDate() + 7);
+    const rows = openInvoices.filter(invoice => { const date = estimatedPaymentDate(invoice, portals); return date && date >= start.toISOString().slice(0, 10) && date < end.toISOString().slice(0, 10); });
+    return { label: index === 0 ? "This week" : `Week ${index + 1}`, rows };
+  });
   const today = new Date().toLocaleDateString("en-GB", { weekday: "long", month: "long", day: "numeric" });
 
   return <div className="app-shell">
@@ -414,6 +422,9 @@ function WorkspaceApp({ user, onLogout }) {
             <Stat label="Overdue" value={overdueTotal} foot={overdueInvoices.length + " invoices · grouped by currency"} icon="!" tone="red" />
             <Stat label="Open invoices" value={openInvoices.length} foot={invoices.length - openInvoices.length + " paid this period"} icon="▤" tone="blue" />
           </div>
+          <section className="panel forecast-panel"><div className="panel-header"><div><b>Expected cash collection</b><small>Estimated from portal payment terms unless an invoice date is set.</small></div><span className="pill pill-muted">Estimate only</span></div>
+            <div className="forecast-grid">{forecastWeeks.map(week => <article className="forecast-card" key={week.label}><small>{week.label}</small><strong>{moneyByCurrency(week.rows)}</strong><span>{week.rows.length} invoice{week.rows.length === 1 ? "" : "s"}</span></article>)}</div>
+          </section>
           <div className="dashboard-grid">
             <InvoicePanel invoices={filteredInvoices.slice(0, 6)} query={query} setQuery={setQuery} statusFilter={statusFilter} setStatusFilter={setStatusFilter} onSelect={setSelected} />
             <div className="side-stack">
@@ -441,7 +452,7 @@ function WorkspaceApp({ user, onLogout }) {
 
         {!loading && page === "portals" && <section>
           <div className="page-head"><div><div className="eyebrow">Customer access</div><h1>Customer portals</h1><p>Keep portal shortcuts beside invoice activity. Access is opened manually.</p></div><div className="head-buttons">{canWrite && <button className="button primary" onClick={() => setModal("portal")}>＋ Add portal</button>}</div></div>
-          <div className="cards-grid">{portalNames.map((name, index) => { const portal = portals.find((p) => p.name === name); const rows = invoices.filter((i) => i.portal === name); const open = rows.filter((i) => i.status !== "Paid"); return <article className="portal-card" key={name}><div className="portal-card-head"><span className={"portal-icon tone-" + (index % 4)}>{initials(name)}</span><span className={"pill " + (portal?.url ? "pill-green" : "pill-muted")}>{portal?.url ? "Link saved" : "No link"}</span></div><h2>{name}</h2><p>{portal?.url ? "Shortcut saved" : "Add a URL for quick access"}</p><div className="portal-metrics"><div><b>{rows.length}</b><small>Total</small></div><div><b>{money(open.reduce((sum, i) => sum + Number(i.amount), 0))}</b><small>Outstanding</small></div><div><b>{rows.filter((i) => effectiveStatus(i) === "Overdue").length}</b><small>Overdue</small></div></div><div className="card-actions">{portal?.url ? <a className="button" href={portal.url} target="_blank" rel="noreferrer">↗ Open portal</a> : <button className="button" onClick={() => setModal("portal")}>＋ Add link</button>}<button className="button" onClick={() => navigate("invoices")}>Invoices</button></div></article>; })}</div>
+          <div className="cards-grid">{portalNames.map((name, index) => { const portal = portals.find((p) => p.name === name); const rows = invoices.filter((i) => i.portal === name); const open = rows.filter((i) => i.status !== "Paid"); return <article className="portal-card" key={name}><div className="portal-card-head"><span className={"portal-icon tone-" + (index % 4)}>{initials(name)}</span><span className={"pill " + (portal?.url ? "pill-green" : "pill-muted")}>{portal?.url ? "Link saved" : "No link"}</span></div><h2>{name}</h2><p>{portal?.url ? "Shortcut saved" : "Add a URL for quick access"}</p>{portal && <div className="portal-guidance"><b>{portal.paymentTermsDays ?? 30}-day terms</b>{portal.requirements && <small>{portal.requirements}</small>}</div>}<div className="portal-metrics"><div><b>{rows.length}</b><small>Total</small></div><div><b>{moneyByCurrency(open)}</b><small>Outstanding</small></div><div><b>{rows.filter((i) => effectiveStatus(i) === "Overdue").length}</b><small>Overdue</small></div></div><div className="card-actions">{portal?.url ? <a className="button" href={portal.url} target="_blank" rel="noreferrer">↗ Open portal</a> : <button className="button" onClick={() => setModal("portal")}>＋ Add link</button>}<button className="button" onClick={() => navigate("invoices")}>Invoices</button></div></article>; })}</div>
           {!portalNames.length && <Empty text="Add an invoice or portal to get started." />}
           <p className="footnote">Portal Ledger never asks for portal credentials. Use links only for portals you’re authorized to access.</p>
         </section>}
@@ -470,6 +481,7 @@ function WorkspaceApp({ user, onLogout }) {
         <Field label="Portal"><input name="portal" list="portal-options" required maxLength="120" placeholder="Customer portal" /><datalist id="portal-options">{portalNames.map((name) => <option key={name} value={name} />)}</datalist></Field>
         <Field label="Submitted date"><input name="submitted" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></Field>
         <Field label="Due date"><input name="due" type="date" required /></Field>
+        <Field label="Expected payment date"><input name="expectedPaymentDate" type="date" /></Field>
         <Field label="Status"><select name="status" defaultValue="Submitted"><option>Draft</option><option>Submitted</option><option>Approved</option><option>Processing</option></select></Field>
         <Field label="Portal reference"><input name="reference" maxLength="120" placeholder="Submission / PO reference" /></Field>
         <Field label="Note / next step" full><textarea name="note" maxLength="2000" placeholder="Rejection reason, AP contact, or next action" /></Field>
@@ -488,7 +500,7 @@ function WorkspaceApp({ user, onLogout }) {
       <div className="detail-amount">{money(selected.amount, selected.currency || "EUR")}</div><div className="detail-grid">
         <Detail label="Customer portal" value={selected.portal} /><Detail label="Legal entity" value={entities.find(e => e._id === selected.entityId)?.name || "Primary entity"} /><Detail label="Portal reference" value={selected.reference || "Not recorded"} /><Detail label="Submitted" value={dateLabel(selected.submitted)} /><Detail label="Due date" value={dateLabel(selected.due)} />
       </div><div className="detail-note"><b>Latest note</b><p>{selected.note || "No note recorded."}</p></div>
-      {(selected.status === "Rejected" || selected.status === "Needs info") && <div className="error-banner"><span><b>{selected.status}:</b> {selected.rejectionReason || "No reason recorded."}{selected.followUpAt ? " · Follow up " + dateLabel(selected.followUpAt) : ""}</span></div>}
+      {(selected.status === "Rejected" || selected.status === "Needs info") && <div className="error-banner"><span><b>{selected.status}:</b> {selected.rejectionReason || "No reason recorded."}{selected.followUpAt ? " · Follow up " + dateLabel(selected.followUpAt) : ""}{selected.assignedTo === user.id ? " · Assigned to you" : ""}</span></div>}
       <InvoiceEvidence invoice={selected} canWrite={canWrite} />
       {canWrite && <div className="modal-actions"><button className="button" onClick={() => editNote(selected)}>＋ Add note</button>{!["Paid", "Rejected", "Needs info"].includes(selected.status) && <><button className="button" onClick={() => updateIssue(selected, "Needs info")}>Flag missing info</button><button className="button danger-quiet" onClick={() => updateIssue(selected, "Rejected")}>Mark rejected</button></>}{["Rejected", "Needs info"].includes(selected.status) && <button className="button primary" onClick={() => resolveIssue(selected)}>✓ Resubmit</button>}{selected.status !== "Paid" && <button className="button primary" onClick={() => markPaid(selected)}>✓ Mark paid</button>}</div>}
     </Modal>}
