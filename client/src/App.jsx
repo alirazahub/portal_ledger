@@ -1,3 +1,37 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+const money = (value) => new Intl.NumberFormat("en-IE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 }).format(Number(value) || 0);
+const dateLabel = (value) => value ? new Date(value + "T12:00:00").toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : "—";
+const dayDelta = (value) => {
+  if (!value) return 0;
+  const [y, m, d] = value.slice(0, 10).split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return Math.round((date - today) / 86400000);
+};
+const initials = (value = "") => value.split(/\s+/).slice(0, 2).map((part) => part[0] || "").join("").toUpperCase();
+const effectiveStatus = (invoice) => invoice.status !== "Paid" && invoice.status !== "Draft" && dayDelta(invoice.due) < 0 ? "Overdue" : invoice.status;
+
+async function request(path, options = {}) {
+  const response = await fetch("/api" + path, {
+    ...options,
+    headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+  });
+  if (response.status === 204) return null;
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.error || "Request failed.");
+  return payload.data;
+}
+
+function Modal({ title, description, onClose, children }) {
+  return <div className="modal-scrim" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <section className="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <header className="modal-header"><div><h2 id="modal-title">{title}</h2><p>{description}</p></div><button className="icon-close" aria-label="Close" onClick={onClose}>×</button></header>
+      {children}
+    </section>
+  </div>;
+}
+
 
 function App() {
   const [user, setUser] = useState(null);
