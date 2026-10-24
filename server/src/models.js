@@ -1,7 +1,7 @@
 import mongoose from "mongoose";
 const { Schema } = mongoose;
 const oid = Schema.Types.ObjectId;
-const OrganizationSchema = new Schema({ name: { type: String, required: true, trim: true, maxlength: 120 } }, { timestamps: true });
+const OrganizationSchema = new Schema({ name: { type: String, required: true, trim: true, maxlength: 120 }, currency: { type: String, enum: ["EUR", "USD", "GBP", "CHF", "CAD"], default: "EUR" } }, { timestamps: true });
 const UserSchema = new Schema({
   name: { type: String, required: true, trim: true, maxlength: 80 },
   email: { type: String, required: true, trim: true, lowercase: true, maxlength: 254, unique: true },

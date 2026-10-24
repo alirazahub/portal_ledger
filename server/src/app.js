@@ -228,17 +228,34 @@ app.post("/api/auth/change-password", authLimiter, async (req, res) => {
   res.json({ data: { changed: true } });
 });
 
+app.get("/api/workspace/settings", async (req, res) => {
+  const workspace = await Organization.findById(req.user.organizationId).select("currency").lean();
+  res.json({ data: { currency: workspace?.currency || "EUR" } });
+});
+app.patch("/api/workspace/settings", role("owner"), async (req, res) => {
+  const currency = String(req.body?.currency || "").toUpperCase();
+  if (!["EUR", "USD", "GBP", "CHF", "CAD"].includes(currency)) return res.status(400).json({ error: "Choose a supported workspace currency." });
+  const workspace = await Organization.findByIdAndUpdate(req.user.organizationId, { currency }, { new: true, runValidators: true });
+  if (!workspace) return res.status(404).json({ error: "Workspace not found." });
+  await audit(req, "workspace.currency.updated", "workspace", workspace._id, `Workspace currency changed to ${currency}; existing invoice currencies were retained`);
+  res.json({ data: { currency: workspace.currency } });
+});
 app.get("/api/entities", async (req, res) => {
-  res.json({ data: await LegalEntity.find({ organizationId: req.user.organizationId }).sort({ isDefault: -1, name: 1 }).lean() });
+  const [workspace, rows] = await Promise.all([
+    Organization.findById(req.user.organizationId).select("currency").lean(),
+    LegalEntity.find({ organizationId: req.user.organizationId }).sort({ isDefault: -1, name: 1 }).lean(),
+  ]);
+  const currency = workspace?.currency || "EUR";
+  res.json({ data: rows.map(entity => ({ ...entity, currency })) });
 });
 app.post("/api/entities", role("owner", "admin"), async (req, res) => {
   const name = String(req.body?.name || "").trim(), country = String(req.body?.country || "").trim();
-  const currency = String(req.body?.currency || "EUR").toUpperCase();
   if (name.length < 2 || name.length > 120) return res.status(400).json({ error: "Entity name must be 2 to 120 characters." });
-  if (!["EUR", "USD", "GBP", "CHF", "CAD"].includes(currency)) return res.status(400).json({ error: "Choose a supported currency." });
+  const workspace = await Organization.findById(req.user.organizationId).select("currency").lean();
+  const currency = workspace?.currency || "EUR";
   const entity = await LegalEntity.create({ organizationId: req.user.organizationId, name, country, currency });
-  await audit(req, "entity.created", "entity", entity._id, `Legal entity ${entity.name} added (${currency})`);
-  res.status(201).json({ data: entity });
+  await audit(req, "entity.created", "entity", entity._id, `Legal entity ${entity.name} added in ${currency}`);
+  res.status(201).json({ data: { ...entity.toObject(), currency } });
 });
 app.get("/api/audit", role("owner", "admin"), async (req, res) => {
   const parsed = Number.parseInt(String(req.query.limit || "40"), 10);
@@ -268,12 +285,15 @@ app.get("/api/invoices", async (req, res) => {
   res.json({ data: await Invoice.find(filter).sort({ due: 1, createdAt: -1 }).lean() });
 });
 app.post("/api/invoices", role("owner", "admin", "accountant"), async (req, res) => {
-  const allowed = ["number", "client", "amount", "currency", "entityId", "portal", "submitted", "due", "status", "reference", "note", "rejectionReason", "assignedTo", "followUpAt", "expectedPaymentDate"];
+  const allowed = ["number", "client", "amount", "entityId", "portal", "submitted", "due", "status", "reference", "note", "rejectionReason", "assignedTo", "followUpAt", "expectedPaymentDate"];
   const payload = Object.fromEntries(Object.entries(req.body || {}).filter(([key]) => allowed.includes(key)));
   payload.organizationId = req.user.organizationId;
-  const entity = payload.entityId ? await LegalEntity.findOne({ _id: payload.entityId, organizationId: req.user.organizationId }) : await LegalEntity.findOne({ organizationId: req.user.organizationId, isDefault: true });
+  const [entity, workspace] = await Promise.all([
+    payload.entityId ? LegalEntity.findOne({ _id: payload.entityId, organizationId: req.user.organizationId }) : LegalEntity.findOne({ organizationId: req.user.organizationId, isDefault: true }),
+    Organization.findById(req.user.organizationId).select("currency").lean(),
+  ]);
   if (!entity) return res.status(400).json({ error: "Choose a legal entity in this workspace." });
-  payload.entityId = entity._id; payload.currency ||= entity.currency || "EUR";
+  payload.entityId = entity._id; payload.currency = workspace?.currency || "EUR";
   const invoice = await Invoice.create(payload);
   await Portal.updateOne(
     { organizationId: req.user.organizationId, name: invoice.portal },
@@ -283,7 +303,7 @@ app.post("/api/invoices", role("owner", "admin", "accountant"), async (req, res)
   res.status(201).json({ data: invoice });
 });
 app.patch("/api/invoices/:id", role("owner", "admin", "accountant"), async (req, res) => {
-  const allowed = ["status", "note", "reference", "due", "submitted", "rejectionReason", "assignedTo", "followUpAt", "expectedPaymentDate", "currency", "entityId"];
+  const allowed = ["status", "note", "reference", "due", "submitted", "rejectionReason", "assignedTo", "followUpAt", "expectedPaymentDate", "entityId"];
   const update = Object.fromEntries(Object.entries(req.body || {}).filter(([key]) => allowed.includes(key)));
   if (update.entityId && !await LegalEntity.exists({ _id: update.entityId, organizationId: req.user.organizationId })) return res.status(400).json({ error: "Choose a legal entity in this workspace." });
   if (update.assignedTo && !await User.exists({ _id: update.assignedTo, organizationId: req.user.organizationId })) return res.status(400).json({ error: "Choose a workspace team member." });

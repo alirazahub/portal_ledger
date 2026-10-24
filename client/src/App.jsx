@@ -216,23 +216,32 @@ function AuditLog() {
   </section>;
 }
 
-function EntityManager() {
-  const [entities, setEntities] = useState([]), [error, setError] = useState(""), [busy, setBusy] = useState(false);
+function EntityManager({ user, currency, onCurrencySaved }) {
+  const [entities, setEntities] = useState([]), [error, setError] = useState(""), [busy, setBusy] = useState(false), [nextCurrency, setNextCurrency] = useState(currency);
   async function refresh() { try { setEntities(await request("/entities")); setError(""); } catch (err) { setError(err.message); } }
   useEffect(() => { refresh(); }, []);
+  useEffect(() => { setNextCurrency(currency); }, [currency]);
   async function add(event) {
     event.preventDefault(); setBusy(true); setError(""); const form = event.currentTarget;
     try { await request("/entities", { method: "POST", body: JSON.stringify(Object.fromEntries(new FormData(form).entries())) }); form.reset(); await refresh(); }
     catch (err) { setError(err.message); } finally { setBusy(false); }
   }
+  async function saveCurrency(event) {
+    event.preventDefault(); setBusy(true); setError("");
+    try { const data = await request("/workspace/settings", { method: "PATCH", body: JSON.stringify({ currency: nextCurrency }) }); onCurrencySaved(data.currency); }
+    catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
   return <div className="team-layout">{error && <div className="error-banner" role="alert">{error}</div>}
-    <section className="panel team-panel"><div className="panel-header"><div><b>Add legal entity</b><small>Separate invoices by company and base currency.</small></div></div>
+    <section className="panel team-panel"><div className="panel-header"><div><b>Workspace currency</b><small>One currency is used for new invoices and entities.</small></div></div>
+      {user.role === "owner" ? <form className="team-invite-form" onSubmit={saveCurrency}><label className="field"><span>Currency</span><select value={nextCurrency} onChange={event => setNextCurrency(event.target.value)}>{currencies.map(c => <option key={c}>{c}</option>)}</select></label><button className="button primary" disabled={busy}>{busy ? "Saving…" : "Save currency"}</button></form> : <div className="panel-header"><b>{currency}</b><small>Only the owner can change this. Existing invoices keep their recorded currency.</small></div>}
+      {user.role === "owner" && <p className="footnote">Existing invoices keep their recorded currency; new invoices use {currency}.</p>}
+    </section>
+    <section className="panel team-panel"><div className="panel-header"><div><b>Add legal entity</b><small>All entities use the workspace currency ({currency}).</small></div></div>
       <form className="team-invite-form" onSubmit={add}><label className="field"><span>Entity name</span><input name="name" minLength="2" maxLength="120" required placeholder="Company SAS" /></label>
       <label className="field"><span>Country</span><input name="country" maxLength="80" placeholder="France" /></label>
-      <label className="field"><span>Base currency</span><select name="currency">{currencies.map(c => <option key={c}>{c}</option>)}</select></label>
       <button className="button primary" disabled={busy}>{busy ? "Saving…" : "Add entity"}</button></form>
-    </section><section className="panel team-panel"><div className="panel-header"><div><b>Legal entities</b><small>Invoices retain their recorded currency.</small></div></div>
-      <div className="team-list">{entities.map(e => <div className="team-row" key={e._id}><span className="portal-icon">{e.isDefault ? "★" : "◇"}</span><span className="team-person"><b>{e.name}</b><small>{e.country || "Country not set"} · {e.currency}{e.isDefault ? " · default" : ""}</small></span></div>)}</div></section>
+    </section><section className="panel team-panel"><div className="panel-header"><div><b>Legal entities</b><small>Entities share the workspace currency.</small></div></div>
+      <div className="team-list">{entities.map(e => <div className="team-row" key={e._id}><span className="portal-icon">{e.isDefault ? "★" : "◇"}</span><span className="team-person"><b>{e.name}</b><small>{e.country || "Country not set"}{e.isDefault ? " · default" : ""}</small></span></div>)}</div></section>
   </div>;
 }
 
@@ -267,6 +276,7 @@ function WorkspaceApp({ user, onLogout }) {
   const [portals, setPortals] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [entities, setEntities] = useState([]);
+  const [workspaceCurrency, setWorkspaceCurrency] = useState("EUR");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -281,10 +291,10 @@ function WorkspaceApp({ user, onLogout }) {
     setLoading(true);
     setError("");
     try {
-      const [invoiceRows, portalRows, documentRows, entityRows] = await Promise.all([
-        request("/invoices"), request("/portals"), request("/documents"), request("/entities"),
+      const [invoiceRows, portalRows, documentRows, entityRows, settings] = await Promise.all([
+        request("/invoices"), request("/portals"), request("/documents"), request("/entities"), request("/workspace/settings"),
       ]);
-      setInvoices(invoiceRows); setPortals(portalRows); setDocuments(documentRows); setEntities(entityRows);
+      setInvoices(invoiceRows); setPortals(portalRows); setDocuments(documentRows); setEntities(entityRows); setWorkspaceCurrency(settings.currency || "EUR");
     } catch (err) {
       setError(err.message + " Make sure MongoDB and the API server are running.");
     } finally {
@@ -345,7 +355,7 @@ function WorkspaceApp({ user, onLogout }) {
     const form = new FormData(event.currentTarget);
     const payload = Object.fromEntries(form.entries());
     payload.amount = Number(payload.amount);
-    payload.currency ||= entities.find(entity => entity._id === payload.entityId)?.currency || "EUR";
+    payload.currency = workspaceCurrency;
     try {
       await request("/invoices", { method: "POST", body: JSON.stringify(payload) });
       setModal(""); await refresh(); navigate("invoices"); notify("Invoice added");
@@ -485,7 +495,7 @@ function WorkspaceApp({ user, onLogout }) {
                 {!followups.length && <Empty text="Nothing to follow up." />}
               </section>
               <section className="panel side-panel"><div className="side-heading"><b>Documents</b><button className="text-link" onClick={() => navigate("documents")}>Manage</button></div>
-                {documents.slice(0, 3).map((doc) => <div className="document-row" key={doc._id}><span>▧</span><b>{doc.name}</b><small>{dateLabel(doc.expiresAt)}</small>{doc.attachmentName && <a className="document-open-link" href={"/api/documents/" + doc._id + "/file"} target="_blank" rel="noreferrer">Open</a>}</div>)}
+                {documents.slice(0, 3).map((doc) => <div className="document-row" key={doc._id}><span>▧</span><b>{doc.name}</b><small>{dateLabel(doc.expiresAt)}</small>{doc.attachmentName && <a className="document-open-link" href={new URL("/api/documents/" + doc._id + "/file", window.location.origin).href} target="_blank" rel="noreferrer">Open</a>}</div>)}
                 {!documents.length && <Empty text="No documents tracked yet." />}
               </section>
             </div>
@@ -507,11 +517,11 @@ function WorkspaceApp({ user, onLogout }) {
 
         {!loading && page === "team" && <section><div className="page-head"><div><div className="eyebrow">Workspace access</div><h1>Team</h1><p>Invite people and assign access by role.</p></div></div><TeamManager user={user} /></section>}
         {!loading && page === "activity" && <section><div className="page-head"><div><div className="eyebrow">Workspace security</div><h1>Activity log</h1><p>Review who changed records and team access.</p></div></div><AuditLog /></section>}
-        {!loading && page === "entities" && <section><div className="page-head"><div><div className="eyebrow">Company structure</div><h1>Entities & currencies</h1><p>Keep records separate by legal company and original invoice currency.</p></div></div><EntityManager /></section>}
+        {!loading && page === "entities" && <section><div className="page-head"><div><div className="eyebrow">Company structure</div><h1>Entities & currency</h1><p>Set one workspace currency and organize invoices by legal entity.</p></div></div><EntityManager user={user} currency={workspaceCurrency} onCurrencySaved={setWorkspaceCurrency} /></section>}
 
         {!loading && page === "documents" && <section>
           <div className="page-head"><div><div className="eyebrow">Shared paperwork</div><h1>Documents</h1><p>Track renewal dates for documents customers may request.</p></div><div className="head-buttons">{canWrite && <button className="button primary" onClick={() => setModal("document")}>＋ Add document</button>}</div></div>
-          <div className="cards-grid">{documents.map((doc) => <article className="document-card" key={doc._id}><div className="portal-card-head"><span className="document-icon">▧</span><span className={"pill " + (dayDelta(doc.expiresAt) <= 30 ? "pill-amber" : "pill-green")}>{dayDelta(doc.expiresAt) <= 30 ? "Renew soon" : "Active"}</span></div><h2>{doc.name}</h2><p>{doc.category} · {doc.attachmentName ? doc.attachmentName : "No file attached"}</p><div className="document-foot"><span>Renewal / expiry</span><b>{dateLabel(doc.expiresAt)}</b></div>{doc.attachmentName && <div className="document-file-actions">{doc.attachmentName && <a className="button" href={"/api/documents/" + doc._id + "/file"} target="_blank" rel="noreferrer">↗ Open document</a>}<label className="button document-open-button">{saving ? "Attaching…" : doc.attachmentName ? "Replace file" : "＋ Attach file"}<input type="file" accept="application/pdf,image/png,image/jpeg" onChange={event => attachDocumentFile(doc, event)} disabled={saving} hidden /></label></div>}</article>)}</div>
+          <div className="cards-grid">{documents.map((doc) => <article className="document-card" key={doc._id}><div className="portal-card-head"><span className="document-icon">▧</span><span className={"pill " + (dayDelta(doc.expiresAt) <= 30 ? "pill-amber" : "pill-green")}>{dayDelta(doc.expiresAt) <= 30 ? "Renew soon" : "Active"}</span></div><h2>{doc.name}</h2><p>{doc.category} · {doc.attachmentName ? doc.attachmentName : "No file attached"}</p><div className="document-foot"><span>Renewal / expiry</span><b>{dateLabel(doc.expiresAt)}</b></div>{doc.attachmentName && <div className="document-file-actions">{doc.attachmentName && <a className="button" href={new URL("/api/documents/" + doc._id + "/file", window.location.origin).href} target="_blank" rel="noreferrer">↗ Open document</a>}<label className="button document-open-button">{saving ? "Attaching…" : doc.attachmentName ? "Replace file" : "＋ Attach file"}<input type="file" accept="application/pdf,image/png,image/jpeg" onChange={event => attachDocumentFile(doc, event)} disabled={saving} hidden /></label></div>}</article>)}</div>
           {!documents.length && <Empty text="No documents yet. Add a renewal date to track it here." />}
           <p className="footnote">Attach a PDF, PNG, or JPEG (up to 1.2 MB) to open it here.</p>
         </section>}
@@ -523,8 +533,8 @@ function WorkspaceApp({ user, onLogout }) {
       <form className="form-grid" onSubmit={saveInvoice}>
         <Field label="Invoice number"><input name="number" required maxLength="80" placeholder="INV-2026-014" /></Field>
         <Field label="Amount"><input name="amount" type="number" min="0.01" step="0.01" required placeholder="2400" /></Field>
-        <Field label="Currency"><select name="currency" defaultValue={entities[0]?.currency || "EUR"}>{currencies.map(c => <option key={c}>{c}</option>)}</select></Field>
-        <Field label="Legal entity"><select name="entityId" defaultValue={entities[0]?._id || ""} required>{entities.map(e => <option key={e._id} value={e._id}>{e.name} · {e.currency}</option>)}</select></Field>
+        <Field label="Workspace currency"><input value={workspaceCurrency} readOnly /></Field>
+        <Field label="Legal entity"><select name="entityId" defaultValue={entities[0]?._id || ""} required>{entities.map(e => <option key={e._id} value={e._id}>{e.name}</option>)}</select></Field>
         <Field label="Customer"><input name="client" required maxLength="160" placeholder="Customer company" /></Field>
         <Field label="Portal"><input name="portal" list="portal-options" required maxLength="120" placeholder="Customer portal" /><datalist id="portal-options">{portalNames.map((name) => <option key={name} value={name} />)}</datalist></Field>
         <Field label="Submitted date"><input name="submitted" type="date" defaultValue={new Date().toISOString().slice(0, 10)} required /></Field>

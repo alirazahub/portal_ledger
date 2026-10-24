@@ -63,7 +63,7 @@ try {
     users.push(await User.create({ name: ["Olivia Owner","Avery Admin","Casey Accountant","Vera Viewer"][i], email: emails[i], passwordHash: salt + ":" + hash, organizationId: organization._id, role }));
   }
   const specs = [
-    ["Northstar Robotics","France","EUR",true],["Cloudberry Health","United States","USD",false],["Juniper Mobility","United Kingdom","GBP",false]
+    ["Northstar Robotics","France","EUR",true],["Cloudberry Health","United States","EUR",false],["Juniper Mobility","United Kingdom","EUR",false]
   ];
   const entities = await LegalEntity.insertMany(specs.map(([name,country,currency,isDefault])=>({organizationId:organization._id,name,country,currency,isDefault})));
   const portalNames=["Coupa Supplier Portal","SAP Business Network","Ariba Network","Oracle Supplier Hub","Workday Supplier","Jaggaer One","Basware Portal","Tradeshift"];
@@ -76,7 +76,7 @@ try {
   }
   const madeInvoices=await Invoice.insertMany(invoices);
   const pdf=makeDemoPdf();
-  const docs=await TrackedDocument.insertMany(Array.from({length:15},(_,i)=>({organizationId:organization._id,name:["General liability insurance","Tax registration certificate","ISO 27001 certificate","Safety training register","Bank confirmation letter"][i%5]+" "+String(1+Math.floor(i/5)),category:["Insurance","Tax document","Safety certificate","Registration","Other"][i%5],expiresAt:date([-12,8,21,42,76,109,146,180,220,270,320,365,430,500,600][i]),...(i<5?{attachmentName:"synthetic-"+String(i+1)+".pdf",mimeType:"application/pdf",size:pdf.length,data:pdf}:{})}))));
+  const docs=await TrackedDocument.insertMany(Array.from({length:15},(_,i)=>({organizationId:organization._id,name:["General liability insurance","Tax registration certificate","ISO 27001 certificate","Safety training register","Bank confirmation letter"][i%5]+" "+String(1+Math.floor(i/5)),category:["Insurance","Tax document","Safety certificate","Registration","Other"][i%5],expiresAt:date([-12,8,21,42,76,109,146,180,220,270,320,365,430,500,600][i]),attachmentName:"synthetic-"+String(i+1)+".pdf",mimeType:"application/pdf",size:pdf.length,data:pdf}))));
   await InvoiceEvidence.insertMany(madeInvoices.slice(0,6).map((inv,i)=>({organizationId:organization._id,invoiceId:inv._id,uploadedBy:users[i%users.length]._id,name:["invoice-copy.pdf","purchase-order.pdf","delivery-confirmation.pdf"][i%3],mimeType:"application/pdf",size:pdf.length,data:pdf})));
   const pendingToken=randomBytes(32).toString("hex");
   await Invitation.create({tokenHash:(await import("node:crypto")).createHash("sha256").update(pendingToken).digest("hex"),email:"new.teammate@portal-ledger.test",role:"accountant",organizationId:organization._id,createdBy:users[0]._id,expiresAt:new Date(Date.now()+7*86400000)});
