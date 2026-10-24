@@ -1,4 +1,5 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "version": 2,
   "installCommand": "npm install",
   "buildCommand": "npm run build",
@@ -19,8 +20,7 @@
       "has": [
         {
           "type": "host",
-          "key": "host",
-          "value": "portal-ledger.aliraza.fr"
+          "value": "portal-ledger\\.aliraza\\.fr"
         }
       ],
       "destination": "https://ledger.aliraza.fr/:path*",
@@ -31,8 +31,7 @@
       "has": [
         {
           "type": "host",
-          "key": "host",
-          "value": "portal-ledger.vercel.app"
+          "value": "portal-ledger\\.vercel\\.app"
         }
       ],
       "destination": "https://ledger.aliraza.fr/:path*",
