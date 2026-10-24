@@ -36,6 +36,18 @@ const SetupLockSchema = new Schema({
   claimExpiresAt: { type: Date, default: null },
   completedAt: { type: Date, default: null },
 }, { timestamps: true });
+const AuditEventSchema = new Schema({
+  organizationId: { type: oid, ref: "Organization", required: true, index: true },
+  actorId: { type: oid, ref: "User", required: true },
+  actorName: { type: String, required: true, maxlength: 80 },
+  actorRole: { type: String, required: true, maxlength: 24 },
+  action: { type: String, required: true, maxlength: 80 },
+  entityType: { type: String, required: true, maxlength: 32 },
+  entityId: { type: String, default: "", maxlength: 64 },
+  summary: { type: String, required: true, maxlength: 240 },
+}, { timestamps: { createdAt: true, updatedAt: false } });
+AuditEventSchema.index({ organizationId: 1, createdAt: -1 });
+AuditEventSchema.index({ createdAt: 1 }, { expireAfterSeconds: 31536000 });
 
 const InvoiceSchema = new Schema({
   organizationId: { type: oid, ref: "Organization", required: true },
@@ -72,6 +84,7 @@ export const Session = mongoose.models.Session || mongoose.model("Session", Sess
 export const Invitation = mongoose.models.Invitation || mongoose.model("Invitation", InvitationSchema);
 export const AuthAttempt = mongoose.models.AuthAttempt || mongoose.model("AuthAttempt", AuthAttemptSchema);
 export const SetupLock = mongoose.models.SetupLock || mongoose.model("SetupLock", SetupLockSchema);
+export const AuditEvent = mongoose.models.AuditEvent || mongoose.model("AuditEvent", AuditEventSchema);
 export const Invoice = mongoose.models.Invoice || mongoose.model("Invoice", InvoiceSchema);
 export const Portal = mongoose.models.Portal || mongoose.model("Portal", PortalSchema);
 export const TrackedDocument = mongoose.models.TrackedDocument || mongoose.model("TrackedDocument", DocumentSchema);

@@ -175,6 +175,31 @@ function TeamManager({ user }) {
   </div>;
 }
 
+function AuditLog() {
+  const [events, setEvents] = useState([]), [cursor, setCursor] = useState(null), [more, setMore] = useState(false), [busy, setBusy] = useState(true), [error, setError] = useState("");
+  async function load(reset = false) {
+    setBusy(true); setError("");
+    const before = reset ? null : cursor;
+    try {
+      const result = await request("/audit?limit=40" + (before ? "&before=" + encodeURIComponent(before) : ""));
+      setEvents(current => before ? [...current, ...result.events] : result.events);
+      setCursor(result.nextCursor); setMore(result.hasMore);
+    } catch (err) { setError(err.message); } finally { setBusy(false); }
+  }
+  useEffect(() => { load(true); }, []);
+  return <section className="panel audit-panel">
+    <div className="panel-header"><div><b>Workspace activity</b><small>Changes from the last 12 months</small></div><button className="button" disabled={busy} onClick={() => load(true)}>Refresh</button></div>
+    {error && <div className="error-banner" role="alert">{error}</div>}
+    {!events.length && !busy ? <Empty text="No workspace activity has been recorded yet." /> : <div className="audit-list">{events.map(event => <article className="audit-row" key={event._id}>
+      <span className="audit-mark" aria-hidden="true">{event.entityType === "security" ? "⌑" : event.entityType === "team" ? "♙" : "↻"}</span>
+      <span className="audit-copy"><b>{event.summary}</b><small>{event.actorName} · {event.actorRole} · {event.entityType}</small></span>
+      <time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</time>
+    </article>)}</div>}
+    {busy && <div className="loading-card">Loading activity…</div>}
+    {!busy && more && <div className="audit-more"><button className="button" onClick={() => load()}>Load older activity</button></div>}
+  </section>;
+}
+
 function WorkspaceApp({ user, onLogout }) {
   const [page, setPage] = useState("overview");
   const [invoices, setInvoices] = useState([]);
@@ -304,7 +329,7 @@ function WorkspaceApp({ user, onLogout }) {
       <div className="brand"><span className="brand-mark">P</span><span><b>Portal Ledger</b><small>Supplier workspace</small></span></div>
       <p className="nav-label">Workspace</p>
       <nav className="nav-list" aria-label="Workspace">
-        {[["overview", "◫", "Overview"], ["invoices", "▤", "Invoices"], ["portals", "↗", "Customer portals"], ["documents", "▧", "Documents"], ...(user.role === "owner" || user.role === "admin" ? [["team", "♙", "Team"]] : [])].map(([id, icon, label]) =>
+        {[["overview", "◫", "Overview"], ["invoices", "▤", "Invoices"], ["portals", "↗", "Customer portals"], ["documents", "▧", "Documents"], ...(user.role === "owner" || user.role === "admin" ? [["team", "♙", "Team"], ["activity", "↻", "Activity log"]] : [])].map(([id, icon, label]) =>
           <button key={id} className={page === id ? "nav-item active" : "nav-item"} onClick={() => navigate(id)}>
             <span className="nav-icon">{icon}</span><span>{label}</span>{id === "invoices" && <span className="nav-count">{openInvoices.length}</span>}
           </button>)}
@@ -313,7 +338,7 @@ function WorkspaceApp({ user, onLogout }) {
     </aside>
 
     <main className="main">
-      <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <b>{page === "overview" ? "Overview" : page === "invoices" ? "Invoices" : page === "portals" ? "Customer portals" : page === "documents" ? "Documents" : "Team"}</b></div>
+      <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <b>{page === "overview" ? "Overview" : page === "invoices" ? "Invoices" : page === "portals" ? "Customer portals" : page === "documents" ? "Documents" : page === "activity" ? "Activity log" : "Team"}</b></div>
         <div className="top-actions"><button className="button" onClick={() => setModal("security")}>Password</button><button className="button" onClick={onLogout}>Sign out</button><button className="button" onClick={exportCsv}>↓ Export</button>{canWrite && <button className="button primary" onClick={() => setModal("invoice")}>＋ New invoice</button>}</div>
       </header>
       <div className="content">
@@ -360,6 +385,7 @@ function WorkspaceApp({ user, onLogout }) {
         </section>}
 
         {!loading && page === "team" && <section><div className="page-head"><div><div className="eyebrow">Workspace access</div><h1>Team</h1><p>Invite people and assign access by role.</p></div></div><TeamManager user={user} /></section>}
+        {!loading && page === "activity" && <section><div className="page-head"><div><div className="eyebrow">Workspace security</div><h1>Activity log</h1><p>Review who changed records and team access.</p></div></div><AuditLog /></section>}
 
         {!loading && page === "documents" && <section>
           <div className="page-head"><div><div className="eyebrow">Shared paperwork</div><h1>Documents</h1><p>Track renewal dates for documents customers may request.</p></div><div className="head-buttons">{canWrite && <button className="button primary" onClick={() => setModal("document")}>＋ Add document</button>}</div></div>

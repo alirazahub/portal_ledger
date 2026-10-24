@@ -193,3 +193,14 @@ td > small { display: block; margin-top: 2px; color: #9aa49f; font-size: 8px; }
  .team-row .team-person{flex-basis:calc(100% - 60px)}
  .team-row select{margin-left:56px}
 }
+
+.audit-panel { overflow: hidden; }
+.audit-list { display: flex; flex-direction: column; }
+.audit-row { display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 14px; padding: 16px 20px; border-top: 1px solid var(--line, #e8ece9); }
+.audit-mark { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 10px; background: #edf5f0; color: #28744e; font-size: 18px; }
+.audit-copy { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.audit-copy b { font-size: 13px; font-weight: 650; }
+.audit-copy small, .audit-row time { color: #7a8580; font-size: 11px; }
+.audit-row time { white-space: nowrap; }
+.audit-more { display: flex; justify-content: center; padding: 18px; border-top: 1px solid var(--line, #e8ece9); }
+@media (max-width: 640px) { .audit-row { grid-template-columns: 34px minmax(0, 1fr); gap: 10px; } .audit-row time { grid-column: 2; } }

@@ -4,7 +4,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import mongoose from "mongoose";
-import { AuthAttempt, Invitation, Invoice, Organization, Portal, Session, SetupLock, TrackedDocument, User } from "./models.js";
+import { AuditEvent, AuthAttempt, Invitation, Invoice, Organization, Portal, Session, SetupLock, TrackedDocument, User } from "./models.js";
 
 const app = express();
 const scrypt = promisify(scryptCallback);
@@ -91,6 +91,9 @@ async function requireAuth(req, res, next) {
 function role(...allowed) {
   return (req, res, next) => allowed.includes(req.user.role) ? next() : res.status(403).json({ error: "Your workspace role does not allow this action." });
 }
+async function audit(req, action, entityType, entityId, summary) {
+  await AuditEvent.create({ organizationId: req.user.organizationId, actorId: req.user.id, actorName: req.user.name, actorRole: req.user.role, action, entityType, entityId: String(entityId || "").slice(0, 64), summary: String(summary).slice(0, 240) });
+}
 
 export async function initializeDatabase() {
   databaseInitialization ??= (async () => {
@@ -98,7 +101,7 @@ export async function initializeDatabase() {
       try { await model.collection.dropIndex(index); }
       catch (error) { if (error.code !== 27 && error.codeName !== "IndexNotFound" && error.codeName !== "NamespaceNotFound") throw error; }
     }
-    await Promise.all([Organization, User, Session, Invitation, AuthAttempt, SetupLock, Invoice, Portal, TrackedDocument].map(model => model.createIndexes()));
+    await Promise.all([Organization, User, Session, Invitation, AuthAttempt, SetupLock, AuditEvent, Invoice, Portal, TrackedDocument].map(model => model.createIndexes()));
     await SetupLock.updateOne({ key: "initial-owner" }, { $setOnInsert: { key: "initial-owner" } }, { upsert: true });
   })().catch(error => { databaseInitialization = undefined; throw error; });
   return databaseInitialization;
@@ -213,7 +216,22 @@ app.post("/api/auth/change-password", authLimiter, async (req, res) => {
   await user.save();
   await Session.deleteMany({ userId: user._id });
   await issueSession(user, res);
+  await audit(req, "auth.password.changed", "security", user._id, "Password changed; other sessions were revoked");
   res.json({ data: { changed: true } });
+});
+
+app.get("/api/audit", role("owner", "admin"), async (req, res) => {
+  const parsed = Number.parseInt(String(req.query.limit || "40"), 10);
+  const limit = Math.min(Math.max(Number.isFinite(parsed) ? parsed : 40, 1), 100);
+  const filter = { organizationId: req.user.organizationId };
+  if (req.query.before) {
+    const before = new Date(String(req.query.before));
+    if (Number.isNaN(before.getTime())) return res.status(400).json({ error: "The activity cursor is invalid." });
+    filter.createdAt = { $lt: before };
+  }
+  const rows = await AuditEvent.find(filter).sort({ createdAt: -1, _id: -1 }).limit(limit + 1).lean();
+  const hasMore = rows.length > limit, events = rows.slice(0, limit);
+  res.json({ data: { events, hasMore, nextCursor: hasMore ? events[events.length - 1].createdAt.toISOString() : null } });
 });
 
 app.get("/api/invoices", async (req, res) => {
@@ -236,6 +254,7 @@ app.post("/api/invoices", role("owner", "admin", "accountant"), async (req, res)
     { organizationId: req.user.organizationId, name: invoice.portal },
     { $setOnInsert: { organizationId: req.user.organizationId, name: invoice.portal } }, { upsert: true }
   );
+  await audit(req, "invoice.created", "invoice", invoice._id, `Invoice ${invoice.number} created for ${invoice.client}`);
   res.status(201).json({ data: invoice });
 });
 app.patch("/api/invoices/:id", role("owner", "admin", "accountant"), async (req, res) => {
@@ -245,11 +264,15 @@ app.patch("/api/invoices/:id", role("owner", "admin", "accountant"), async (req,
   if (update.status && update.status !== "Paid") update.paidAt = "";
   const invoice = await Invoice.findOneAndUpdate({ _id: req.params.id, organizationId: req.user.organizationId }, update, { new: true, runValidators: true });
   if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+  const fields = Object.keys(update).filter(key => key !== "paidAt");
+  await audit(req, update.status === "Paid" ? "invoice.paid" : "invoice.updated", "invoice", invoice._id,
+    update.status === "Paid" ? `Invoice ${invoice.number} marked paid` : `Invoice ${invoice.number} updated (${fields.join(", ") || "details"})`);
   res.json({ data: invoice });
 });
 app.delete("/api/invoices/:id", role("owner", "admin", "accountant"), async (req, res) => {
   const invoice = await Invoice.findOneAndDelete({ _id: req.params.id, organizationId: req.user.organizationId });
   if (!invoice) return res.status(404).json({ error: "Invoice not found." });
+  await audit(req, "invoice.deleted", "invoice", invoice._id, `Invoice ${invoice.number} deleted`);
   res.status(204).end();
 });
 
@@ -257,37 +280,43 @@ app.get("/api/portals", async (req, res) => res.json({ data: await Portal.find({
 app.post("/api/portals", role("owner", "admin", "accountant"), async (req, res) => {
   const name = String(req.body?.name || "").trim();
   const url = String(req.body?.url || "").trim();
-  res.status(201).json({ data: await Portal.create({ organizationId: req.user.organizationId, name, url }) });
+  const portal = await Portal.create({ organizationId: req.user.organizationId, name, url });
+  await audit(req, "portal.created", "portal", portal._id, `Portal shortcut “${portal.name}” created`);
+  res.status(201).json({ data: portal });
 });
 app.patch("/api/portals/:id", role("owner", "admin", "accountant"), async (req, res) => {
   const portal = await Portal.findOneAndUpdate({ _id: req.params.id, organizationId: req.user.organizationId }, { name: req.body?.name, url: req.body?.url }, { new: true, runValidators: true });
   if (!portal) return res.status(404).json({ error: "Portal not found." });
+  await audit(req, "portal.updated", "portal", portal._id, `Portal shortcut “${portal.name}” updated`);
   res.json({ data: portal });
 });
 app.delete("/api/portals/:id", role("owner", "admin", "accountant"), async (req, res) => {
   const portal = await Portal.findOneAndDelete({ _id: req.params.id, organizationId: req.user.organizationId });
   if (!portal) return res.status(404).json({ error: "Portal not found." });
+  await audit(req, "portal.deleted", "portal", portal._id, `Portal shortcut “${portal.name}” deleted`);
   res.status(204).end();
 });
 
 app.get("/api/documents", async (req, res) => res.json({ data: await TrackedDocument.find({ organizationId: req.user.organizationId }).sort({ expiresAt: 1 }).lean() }));
 app.post("/api/documents", role("owner", "admin", "accountant"), async (req, res) => {
-  res.status(201).json({ data: await TrackedDocument.create({
-    organizationId: req.user.organizationId,
-    name: String(req.body?.name || "").trim(),
-    category: req.body?.category || "Other",
-    expiresAt: req.body?.expiresAt,
-  }) });
+  const document = await TrackedDocument.create({
+    organizationId: req.user.organizationId, name: String(req.body?.name || "").trim(),
+    category: req.body?.category || "Other", expiresAt: req.body?.expiresAt,
+  });
+  await audit(req, "document.created", "document", document._id, `Renewal reminder “${document.name}” created`);
+  res.status(201).json({ data: document });
 });
 app.patch("/api/documents/:id", role("owner", "admin", "accountant"), async (req, res) => {
   const document = await TrackedDocument.findOneAndUpdate({ _id: req.params.id, organizationId: req.user.organizationId },
     { name: req.body?.name, category: req.body?.category, expiresAt: req.body?.expiresAt }, { new: true, runValidators: true });
   if (!document) return res.status(404).json({ error: "Document not found." });
+  await audit(req, "document.updated", "document", document._id, `Renewal reminder “${document.name}” updated`);
   res.json({ data: document });
 });
 app.delete("/api/documents/:id", role("owner", "admin", "accountant"), async (req, res) => {
   const doc = await TrackedDocument.findOneAndDelete({ _id: req.params.id, organizationId: req.user.organizationId });
   if (!doc) return res.status(404).json({ error: "Document not found." });
+  await audit(req, "document.deleted", "document", doc._id, `Renewal reminder “${doc.name}” deleted`);
   res.status(204).end();
 });
 
@@ -315,6 +344,7 @@ app.post("/api/team/invitations", role("owner", "admin"), async (req, res) => {
   const base = process.env.APP_ORIGIN || process.env.CLIENT_ORIGIN || `${req.protocol}://${req.get("host")}`;
   const url = new URL("/", base);
   url.searchParams.set("invite", token);
+  await audit(req, "team.invitation.created", "team", invite._id, `Invitation created for ${email} as ${inviteRole}`);
   res.status(201).json({ data: { id: String(invite._id), email, role: inviteRole, expiresAt: invite.expiresAt, inviteUrl: url.toString() } });
 });
 app.patch("/api/team/members/:id/role", role("owner", "admin"), async (req, res) => {
@@ -325,8 +355,10 @@ app.patch("/api/team/members/:id/role", role("owner", "admin"), async (req, res)
   if (!member) return res.status(404).json({ error: "Team member not found." });
   if (member.role === "owner") return res.status(403).json({ error: "The owner role cannot be changed." });
   if (req.user.role === "admin" && (member.role === "admin" || nextRole === "admin")) return res.status(403).json({ error: "Admins can manage accountants and viewers only." });
+  const previousRole = member.role;
   member.role = nextRole;
   await member.save();
+  await audit(req, "team.role.changed", "team", member._id, `${member.name} changed from ${previousRole} to ${nextRole}`);
   res.json({ data: { id: String(member._id), name: member.name, email: member.email, role: member.role } });
 });
 app.delete("/api/team/members/:id", role("owner", "admin"), async (req, res) => {
@@ -336,11 +368,13 @@ app.delete("/api/team/members/:id", role("owner", "admin"), async (req, res) => 
   if (member.role === "owner") return res.status(403).json({ error: "The owner cannot be removed." });
   if (req.user.role === "admin" && member.role === "admin") return res.status(403).json({ error: "Admins cannot remove another admin." });
   await Promise.all([Session.deleteMany({ userId: member._id }), User.deleteOne({ _id: member._id })]);
+  await audit(req, "team.member.removed", "team", member._id, `${member.name} removed from the workspace`);
   res.status(204).end();
 });
 app.delete("/api/team/invitations/:id", role("owner", "admin"), async (req, res) => {
   const invite = await Invitation.findOneAndDelete({ _id: req.params.id, organizationId: req.user.organizationId, acceptedAt: null });
   if (!invite) return res.status(404).json({ error: "Invitation not found." });
+  await audit(req, "team.invitation.revoked", "team", invite._id, `Invitation for ${invite.email} revoked`);
   res.status(204).end();
 });
 
