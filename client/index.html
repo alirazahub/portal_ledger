@@ -4,14 +4,104 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#f5f7f6" />
-    <meta name="description" content="Track supplier invoices, customer portal updates, due dates, documents, and team follow-ups in one private workspace." />
-    <meta property="og:title" content="Portal Ledger | Invoice operations for supplier teams" />
-    <meta property="og:description" content="Know where every invoice stands. Keep portal links, statuses, documents, and follow-ups together." />
+    <meta name="description" content="Track supplier invoices, customer portal submissions, due dates, documents, and follow-ups in one workspace. Clear invoice operations for portal-based supplier teams." />
+    <meta name="robots" content="index,follow" />
+    <link rel="canonical" href="https://ledger.aliraza.fr/" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta property="og:type" content="website" />
-    <title>Portal Ledger | Invoice operations for supplier teams</title>
+    <meta property="og:site_name" content="Portal Ledger" />
+    <meta property="og:title" content="Portal Ledger | Supplier Invoice Tracking" />
+    <meta property="og:description" content="Track customer portal invoices, due dates, documents, and follow-ups in one supplier workspace." />
+    <meta property="og:url" content="https://ledger.aliraza.fr/" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Portal Ledger | Supplier Invoice Tracking" />
+    <meta name="twitter:description" content="Track customer portal invoices, due dates, documents, and follow-ups in one supplier workspace." />
+    <title>Portal Ledger | Supplier Invoice Tracking</title>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@graph": [
+          {
+            "@type": "Organization",
+            "@id": "https://ledger.aliraza.fr/#organization",
+            "name": "Portal Ledger",
+            "url": "https://ledger.aliraza.fr/"
+          },
+          {
+            "@type": "WebSite",
+            "@id": "https://ledger.aliraza.fr/#website",
+            "url": "https://ledger.aliraza.fr/",
+            "name": "Portal Ledger",
+            "publisher": { "@id": "https://ledger.aliraza.fr/#organization" }
+          },
+          {
+            "@type": "WebApplication",
+            "@id": "https://ledger.aliraza.fr/#application",
+            "name": "Portal Ledger",
+            "url": "https://ledger.aliraza.fr/",
+            "applicationCategory": "BusinessApplication",
+            "operatingSystem": "Web",
+            "description": "Supplier invoice tracking for customer portal submissions, due dates, documents, and team follow-ups.",
+            "publisher": { "@id": "https://ledger.aliraza.fr/#organization" },
+            "featureList": [
+              "Supplier invoice status tracking",
+              "Customer portal directory",
+              "Document attachments",
+              "Invoice due dates and follow-ups",
+              "Role-based team access"
+            ]
+          }
+        ]
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="landing-page">
+        <header class="landing-nav">
+          <a class="landing-brand" href="/" aria-label="Portal Ledger home"><span class="brand-mark">P</span><span><b>Portal Ledger</b><small>Supplier workspace</small></span></a>
+          <nav class="landing-nav-links" aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#features">Features</a><a href="#team-access">Team access</a><a href="#security">Security</a></nav>
+          <div class="landing-nav-actions"><a class="landing-signin" href="/login">Sign in</a><a class="button primary landing-nav-cta" href="/login">Open workspace ↗</a></div>
+        </header>
+        <section class="landing-hero landing-container">
+          <div class="landing-hero-copy">
+            <div class="landing-eyebrow"><span></span> INVOICE OPERATIONS FOR SUPPLIER TEAMS</div>
+            <h1>Supplier invoice tracking for portal-based workflows.</h1>
+            <p class="landing-lede">Portal Ledger is shared invoice tracking software for suppliers who work across customer portals. Keep portal links, submission status, due dates, supporting documents, and team follow-ups together.</p>
+            <div class="landing-hero-actions"><a class="button primary landing-big-button" href="/login">Open your workspace →</a><a class="landing-secondary-link" href="#how-it-works">See how it works ↓</a></div>
+          </div>
+        </section>
+        <section id="how-it-works" class="landing-section landing-container">
+          <div class="landing-section-heading"><div class="landing-eyebrow"><span></span> HOW IT WORKS</div><h2>Track supplier invoices from submission to payment.</h2><p>Record each invoice, save customer portal details, update the status, and keep the next step visible. Your team submits invoices through customer portals; Portal Ledger tracks the work around that process.</p></div>
+          <div class="workflow-grid">
+            <article class="workflow-card"><h3>1. Record the invoice</h3><p>Add the invoice number, customer, amount, legal entity, portal, dates, and responsible teammate.</p></article>
+            <article class="workflow-card"><h3>2. Open the right portal</h3><p>Keep portal URLs, payment terms, and submission requirements in one directory.</p></article>
+            <article class="workflow-card"><h3>3. Track and follow up</h3><p>Record submitted, needs info, approved, processing, rejected, or paid and keep follow-ups visible.</p></article>
+            <article class="workflow-card"><h3>4. Close the loop</h3><p>Attach supporting documents and record payment status so the team can find the invoice history later.</p></article>
+          </div>
+        </section>
+        <section id="features" class="landing-section landing-features"><div class="landing-container">
+          <div class="landing-section-heading"><div class="landing-eyebrow"><span></span> SUPPLIER INVOICE WORKFLOW</div><h2>Customer portal invoice tracking in one workspace.</h2><p>Keep the coordination between invoice submission and payment visible to the people who manage it.</p></div>
+          <div class="feature-grid">
+            <article class="feature-card"><h3>Invoice status tracking</h3><p>Keep amount, dates, portal reference, legal entity, notes, and payment progress with each record.</p></article>
+            <article class="feature-card"><h3>Customer portal directory</h3><p>Save portal links, payment terms, and submission requirements. Portal passwords are not stored.</p></article>
+            <article class="feature-card"><h3>Document attachments</h3><p>Attach and open supported PDF, PNG, and JPEG files from tracked document records.</p></article>
+            <article class="feature-card"><h3>Team permissions</h3><p>Separate owner, admin, accountant, and viewer roles, with important workspace changes recorded.</p></article>
+          </div>
+        </div></section>
+        <section id="team-access" class="landing-section landing-container"><div class="landing-section-heading"><div class="landing-eyebrow"><span></span> FOR SUPPLIER FINANCE TEAMS</div><h2>Clear handoffs across invoice operations.</h2><p>Owners control workspace settings. Admins organize records and members. Accountants update invoice work. Viewers review and export.</p></div></section>
+        <section id="security" class="landing-security"><div class="landing-container"><div class="landing-eyebrow"><span></span> PRIVATE WORKSPACE</div><h2>Keep supplier records inside your workspace.</h2><p>Only invited members can access workspace records. Role-based permissions and activity history help teams understand who can make changes.</p></div></section>
+        <section class="landing-faq landing-container"><div class="landing-section-heading"><div class="landing-eyebrow"><span></span> FAQ</div><h2>What Portal Ledger does—and doesn’t do.</h2></div><div class="faq-grid">
+          <article><h3>Does it submit invoices to customer portals?</h3><p>No. Your team submits invoices in each customer’s portal, then records the status and reference here.</p></article>
+          <article><h3>Does it replace accounting software or process payments?</h3><p>No. It tracks invoice operations and follow-ups; it does not move money, file taxes, or replace accounting software.</p></article>
+          <article><h3>Can I open attached documents?</h3><p>Yes. Open supported PDF, PNG, and JPEG files from their document records.</p></article>
+          <article><h3>Can all users change the currency?</h3><p>No. The workspace owner controls currency settings; existing invoices keep their recorded currency.</p></article>
+        </div></section>
+        <section class="landing-bottom-cta"><div class="landing-container bottom-cta-inner"><div><h2>Know the next step for every invoice.</h2><p>Start with your supplier workspace, add customer portals, and invite your team.</p></div><a class="button landing-big-button bottom-cta-button" href="/login">Open workspace →</a></div></section>
+        <footer class="landing-footer"><div class="landing-container landing-footer-main"><a class="landing-brand footer-brand" href="/"><span class="brand-mark">P</span><span><b>Portal Ledger</b><small>Supplier workspace</small></span></a><p>Supplier invoice tracking for customer portal workflows.</p><div class="landing-footer-links"><a href="#how-it-works">How it works</a><a href="#features">Features</a><a href="/login">Sign in</a></div></div><div class="landing-container landing-footer-bottom"><span>© 2026 Portal Ledger</span><span>Operations tracking, not invoice submission or accounting advice.</span></div></footer>
+      </main>
+    </div>
+    <noscript><p>Portal Ledger helps supplier teams track customer portal invoices, submission statuses, due dates, supporting documents, and follow-ups. JavaScript is required to sign in and use the workspace.</p></noscript>
     <script type="module" src="/src/main.jsx"></script>
   </body>
 </html>

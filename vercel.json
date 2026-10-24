@@ -12,5 +12,31 @@
       "source": "/login/",
       "destination": "/"
     }
+  ],
+  "redirects": [
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "key": "host",
+          "value": "portal-ledger.aliraza.fr"
+        }
+      ],
+      "destination": "https://ledger.aliraza.fr/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [
+        {
+          "type": "host",
+          "key": "host",
+          "value": "portal-ledger.vercel.app"
+        }
+      ],
+      "destination": "https://ledger.aliraza.fr/:path*",
+      "permanent": true
+    }
   ]
 }

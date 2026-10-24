@@ -67,8 +67,10 @@ function App() {
   }, []);
 
   useEffect(() => {
-    document.title = showAuth ? "Sign in | Portal Ledger" : "Portal Ledger | Invoice operations for supplier teams";
-  }, [showAuth]);
+    document.title = showAuth ? "Sign in | Portal Ledger" : user ? "Workspace | Portal Ledger" : "Portal Ledger | Supplier Invoice Tracking";
+    const robots = document.querySelector('meta[name="robots"]');
+    if (robots) robots.setAttribute("content", showAuth ? "noindex,follow" : user ? "noindex,nofollow" : "index,follow");
+  }, [showAuth, user]);
 
   useEffect(() => {
     let active = true;
@@ -106,12 +108,12 @@ function App() {
     setUser(null);
   }
 
-  if (checking) return <div className="auth-loading">Opening your secure workspace…</div>;
   if (!user && !inviteToken && !showAuth) return <PublicLandingPage
     setupRequired={setupRequired}
     onSignIn={openLogin}
     onGetStarted={openLogin}
   />;
+  if (checking) return <div className="auth-loading">Opening your secure workspace…</div>;
   if (!user) return <AuthScreen setupRequired={setupRequired} inviteToken={inviteToken} initialError={authError} onBack={inviteToken ? null : returnHome} onAuthenticated={(nextUser) => {
     window.history.replaceState({}, "", "/");
     setAuthError("");
@@ -121,21 +123,22 @@ function App() {
 }
 
 function PublicLandingPage({ setupRequired, onSignIn, onGetStarted }) {
+  const authLink = (event, action) => { event.preventDefault(); action(); };
   return <main className="landing-page">
     <header className="landing-nav">
       <a className="landing-brand" href="#" aria-label="Portal Ledger home"><span className="brand-mark">P</span><span><b>Portal Ledger</b><small>Supplier workspace</small></span></a>
       <nav className="landing-nav-links" aria-label="Main navigation">
         <a href="#how-it-works">How it works</a><a href="#features">What you can manage</a><a href="#team-access">Team access</a><a href="#security">Security</a>
       </nav>
-      <div className="landing-nav-actions"><button className="landing-signin" onClick={onSignIn}>Sign in</button><button className="button primary landing-nav-cta" onClick={onGetStarted}>{setupRequired ? "Create workspace" : "Open workspace"}<span aria-hidden="true">↗</span></button></div>
+      <div className="landing-nav-actions"><a className="landing-signin" href="/login" onClick={(event) => authLink(event, onSignIn)}>Sign in</a><a className="button primary landing-nav-cta" href="/login" onClick={(event) => authLink(event, onGetStarted)}>{setupRequired ? "Create workspace" : "Open workspace"}<span aria-hidden="true">↗</span></a></div>
     </header>
 
     <section className="landing-hero landing-container">
       <div className="landing-hero-copy">
         <div className="landing-eyebrow"><span></span> INVOICE OPERATIONS FOR SUPPLIER TEAMS</div>
-        <h1>Know where every invoice stands.</h1>
-        <p className="landing-lede">Portal Ledger brings customer portal links, invoice status, due dates, documents, and team follow-ups into one clear workspace.</p>
-        <div className="landing-hero-actions"><button className="button primary landing-big-button" onClick={onGetStarted}>{setupRequired ? "Set up your workspace" : "Go to your workspace"}<span aria-hidden="true">→</span></button><a className="landing-secondary-link" href="#how-it-works">See how it works <span aria-hidden="true">↓</span></a></div>
+        <h1>Supplier invoice tracking for portal-based workflows.</h1>
+        <p className="landing-lede">Portal Ledger is shared invoice tracking software for suppliers who work across customer portals. Keep portal links, submission status, due dates, supporting documents, and team follow-ups together.</p>
+        <div className="landing-hero-actions"><a className="button primary landing-big-button" href="/login" onClick={(event) => authLink(event, onGetStarted)}>{setupRequired ? "Set up your workspace" : "Go to your workspace"}<span aria-hidden="true">→</span></a><a className="landing-secondary-link" href="#how-it-works">See how it works <span aria-hidden="true">↓</span></a></div>
         <div className="landing-proof"><span><i>✓</i> One shared invoice view</span><span><i>✓</i> Clear roles and ownership</span></div>
       </div>
 
@@ -158,7 +161,7 @@ function PublicLandingPage({ setupRequired, onSignIn, onGetStarted }) {
     <section className="landing-trustbar"><div className="landing-container trustbar-inner"><span>ONE PLACE FOR THE DETAILS THAT GET LOST</span><div><b>Invoice tracking</b><i></i><b>Portal directory</b><i></i><b>Documents</b><i></i><b>Team activity</b></div></div></section>
 
     <section id="how-it-works" className="landing-section landing-container">
-      <div className="landing-section-heading"><div className="landing-eyebrow"><span></span> A SIMPLE OPERATING FLOW</div><h2>From invoice created to payment recorded.</h2><p>Keep your team’s work visible while the customer’s portal remains the place where invoices are actually submitted and processed.</p></div>
+      <div className="landing-section-heading"><div className="landing-eyebrow"><span></span> A SIMPLE OPERATING FLOW</div><h2>Track supplier invoices from submission to payment.</h2><p>Keep your team’s work visible while the customer’s portal remains the place where invoices are actually submitted and processed.</p></div>
       <div className="workflow-grid">
         <article className="workflow-card"><span className="workflow-number">01</span><div className="workflow-icon">＋</div><h3>Record the invoice</h3><p>Add the invoice number, customer, amount, legal entity, portal, submission date, due date, and the person responsible.</p><small>One consistent record for the whole team</small></article>
         <article className="workflow-card"><span className="workflow-number">02</span><div className="workflow-icon">↗</div><h3>Open the right portal</h3><p>Save each customer portal’s URL, payment terms, and submission requirements. Open it when your team is ready to submit.</p><small>Portal Ledger does not submit on your behalf</small></article>
@@ -169,7 +172,7 @@ function PublicLandingPage({ setupRequired, onSignIn, onGetStarted }) {
 
     <section id="features" className="landing-section landing-features">
       <div className="landing-container">
-        <div className="landing-section-heading"><div className="landing-eyebrow"><span></span> WHAT THE WORKSPACE HANDLES</div><h2>Built for the details between submission and payment.</h2><p>Portal Ledger focuses on the everyday coordination work around customer invoice portals.</p></div>
+        <div className="landing-section-heading"><div className="landing-eyebrow"><span></span> WHAT THE WORKSPACE HANDLES</div><h2>Customer portal invoice tracking, from submission to payment.</h2><p>Portal Ledger gives supplier teams one place to organize invoice submissions, portal requirements, due dates, documents, and follow-ups—without replacing the customer portal or accounting system.</p></div>
         <div className="feature-grid">
           <article className="feature-card feature-large"><div className="feature-art feature-art-invoices"><span>INV-2026-184</span><div><b>€4,800.00</b><i>Processing</i></div><small>Due 14 Nov · Northstar Robotics</small><div className="feature-timeline"><span className="done"></span><span className="done"></span><span className="current"></span><span></span><span></span></div><small>Draft <b>Submitted</b> Processing Approved Paid</small></div><div className="feature-copy"><span className="feature-kicker">01 / INVOICES</span><h3>A reliable status for every invoice.</h3><p>Keep the key dates, portal reference, amount, legal entity, notes, and follow-up owner together. Filter the list and see what needs attention.</p></div></article>
           <article className="feature-card"><div className="feature-icon feature-icon-violet">↗</div><span className="feature-kicker">02 / CUSTOMER PORTALS</span><h3>Stop hunting for portal links.</h3><p>Keep customer portal URLs, payment terms, and submission requirements in one directory your invited team can use.</p></article>
@@ -192,7 +195,7 @@ function PublicLandingPage({ setupRequired, onSignIn, onGetStarted }) {
     </section>
 
     <section id="security" className="landing-security">
-      <div className="landing-container security-layout"><div><div className="landing-eyebrow"><span></span> PRIVATE BY DESIGN</div><h2>Your team’s records belong to your workspace.</h2><p>Portal Ledger is designed around clear workspace boundaries and accountable access.</p><button className="security-cta" onClick={onGetStarted}>Continue to Portal Ledger <span>→</span></button></div>
+      <div className="landing-container security-layout"><div><div className="landing-eyebrow"><span></span> PRIVATE BY DESIGN</div><h2>Your team’s records belong to your workspace.</h2><p>Portal Ledger is designed around clear workspace boundaries and accountable access.</p><a className="security-cta" href="/login" onClick={(event) => authLink(event, onGetStarted)}>Continue to Portal Ledger <span>→</span></a></div>
         <div className="security-points"><article><span>⌑</span><div><b>Invited access</b><small>Members join through one-time invitation links that expire.</small></div></article><article><span>◈</span><div><b>Role-based permissions</b><small>Read, record management, and workspace administration are separated.</small></div></article><article><span>↻</span><div><b>Activity history</b><small>Important workspace changes are recorded in the activity log.</small></div></article><article><span>▣</span><div><b>Portal passwords stay out</b><small>Save portal URLs and requirements. Do not store customer portal passwords here.</small></div></article></div>
       </div>
     </section>
@@ -204,9 +207,9 @@ function PublicLandingPage({ setupRequired, onSignIn, onGetStarted }) {
       <article><h3>Can I open a document from the workspace?</h3><p>Yes, when a file has been attached to its document record. Supported formats are PDF, PNG, and JPEG.</p></article>
     </div></section>
 
-    <section className="landing-bottom-cta"><div className="landing-container bottom-cta-inner"><div><div className="landing-eyebrow"><span></span> ONE PLACE TO CHECK</div><h2>Bring the invoice work into view.</h2><p>Start with your workspace, add the portals you use, and invite the people who need to follow along.</p></div><button className="button landing-big-button bottom-cta-button" onClick={onGetStarted}>{setupRequired ? "Create your workspace" : "Sign in to your workspace"}<span aria-hidden="true">→</span></button></div></section>
+    <section className="landing-bottom-cta"><div className="landing-container bottom-cta-inner"><div><div className="landing-eyebrow"><span></span> ONE PLACE TO CHECK</div><h2>Bring the invoice work into view.</h2><p>Start with your workspace, add the portals you use, and invite the people who need to follow along.</p></div><a className="button landing-big-button bottom-cta-button" href="/login" onClick={(event) => authLink(event, onGetStarted)}>{setupRequired ? "Create your workspace" : "Sign in to your workspace"}<span aria-hidden="true">→</span></a></div></section>
 
-    <footer className="landing-footer"><div className="landing-container landing-footer-main"><a className="landing-brand footer-brand" href="#"><span className="brand-mark">P</span><span><b>Portal Ledger</b><small>Supplier workspace</small></span></a><p>Clearer invoice operations for teams working across customer portals.</p><div className="landing-footer-links"><a href="#how-it-works">How it works</a><a href="#features">Features</a><a href="#security">Security</a><button onClick={onSignIn}>Sign in</button></div></div><div className="landing-container landing-footer-bottom"><span>© {new Date().getFullYear()} Portal Ledger</span><span>Operations tracking, not invoice submission or accounting advice.</span></div></footer>
+    <footer className="landing-footer"><div className="landing-container landing-footer-main"><a className="landing-brand footer-brand" href="#"><span className="brand-mark">P</span><span><b>Portal Ledger</b><small>Supplier workspace</small></span></a><p>Clearer invoice operations for teams working across customer portals.</p><div className="landing-footer-links"><a href="#how-it-works">How it works</a><a href="#features">Features</a><a href="#security">Security</a><a href="/login" onClick={(event) => authLink(event, onSignIn)}>Sign in</a></div></div><div className="landing-container landing-footer-bottom"><span>© {new Date().getFullYear()} Portal Ledger</span><span>Operations tracking, not invoice submission or accounting advice.</span></div></footer>
   </main>;
 }
 
