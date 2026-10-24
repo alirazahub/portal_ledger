@@ -26,11 +26,6 @@ Requirements: Node.js 20.19+ (or 22.12+) and a MongoDB instance.
 
 4. Open the Vite URL printed in the web terminal (normally `http://localhost:5173`).
 
-5. To load sample data into an empty database, run:
-
-   `npm run seed:demo`
-
-The demo seed refuses to add records if the invoice collection already has data.
 
 ## Main API routes
 
@@ -47,3 +42,10 @@ The client talks to `/api`; Vite proxies those requests to the Express API on po
 ## Current scope
 
 This is a single-workspace MVP. It has no sign-in, tenant isolation, portal automation, file uploads, or payment processing. Portal status is entered by the user; portal credentials are not collected. Do not use real customer or financial records until authentication, authorization, operational logging, backups, and production deployment settings are added.
+
+
+## Deploy to Vercel
+
+The repository includes a Vercel configuration for the Vite client and Express API function. Create a MongoDB Atlas database, then add `MONGODB_URI` in the Vercel project’s Production Environment Variables. The local example URI only works on your machine.
+
+After deployment, the API is available under the same domain at `/api`. This MVP has no sign-in or access control. Do not enter real invoice, customer, or document data until authentication and authorization are added.
